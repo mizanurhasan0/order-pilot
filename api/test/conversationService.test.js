@@ -5,11 +5,17 @@ import { createConversationService } from '../src/services/conversationService.j
 import {
   CANCEL_ORDER_PAYLOAD,
   MENU_PAYLOAD,
+  MY_ORDERS_PAYLOAD,
+  NEW_DETAILS_PAYLOAD,
+  SUPPORT_PAYLOAD,
+  USE_SAVED_DETAILS_PAYLOAD,
   catalogPagePayload,
   confirmOrderPayload,
   orderProductPayload,
+  quantityPayload,
 } from '../src/services/payloads.js';
 import { CATALOG_PAGE_SIZE, getCatalogPage } from '../src/services/productService.js';
+import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
 import { createOrderStore } from '../src/store/orderStore.js';
 import { SESSION_TTL_MS, STEPS, conversationKey, createSessionStore } from '../src/store/sessionStore.js';
@@ -411,8 +417,11 @@ test('each draft gets its own draft id', async () => {
 test('anything but a confirm or cancel answer re-asks and keeps the draft', async () => {
   const h = setup();
   const summary = await reachSummary(h);
+  // Sent like the summary, so the Confirm / Cancel quick replies come back with the reminder.
   for (const text of ['maybe', '3', 'ok', '১২', '']) {
-    assertSingleText(await h.say(text), 'confirm_invalid', texts.CONFIRM_INVALID);
+    assert.deepEqual(await h.say(text), [
+      { kind: 'order_confirmation', rule: 'confirm_invalid', text: texts.CONFIRM_INVALID, draftId: summary.draftId },
+    ]);
   }
   assert.equal(h.session().step, STEPS.WAITING_FOR_CONFIRMATION);
   assert.equal(h.session().draftId, summary.draftId);
@@ -864,6 +873,144 @@ test('phone and address appear only in the order summary, never in other replies
   }
   assert.ok(summary[0].text.includes(PHONE));
   assert.ok(summary[0].text.includes(ADDRESS));
+});
+
+// --- quick replies -------------------------------------------------------------------------
+
+test('every step offers its quick replies', async () => {
+  const h = setup();
+  assert.deepEqual((await h.say('hi'))[0].quickReplies, quick.MENU);
+  assert.deepEqual((await h.tap(orderProductPayload(FIRST.id)))[0].quickReplies, quick.QUANTITY);
+  assert.deepEqual((await h.say('many'))[0].quickReplies, quick.QUANTITY);
+  assert.deepEqual((await h.say('2'))[0].quickReplies, quick.PHONE);
+  assert.deepEqual((await h.say('12345'))[0].quickReplies, quick.PHONE);
+  assert.deepEqual((await h.say(PHONE))[0].quickReplies, quick.ADDRESS);
+  assert.deepEqual((await h.say('short'))[0].quickReplies, quick.ADDRESS);
+  await h.say(ADDRESS);
+  const [confirmed] = await h.say('1');
+  assert.equal(confirmed.rule, 'order_confirmed');
+  assert.deepEqual(confirmed.quickReplies, quick.AFTER_ORDER);
+  assert.deepEqual((await h.say('gibberish'))[0].quickReplies, quick.MENU);
+  assert.deepEqual((await h.say('cancel'))[0].quickReplies, quick.MENU);
+});
+
+test('the quantity quick reply answers the quantity question', async () => {
+  const h = setup();
+  await h.tap(orderProductPayload(FIRST.id));
+  assertSingleText(await h.tap(quantityPayload(3)), 'quantity_ok', texts.ASK_PHONE);
+  assert.equal(h.session().quantity, 3);
+  assert.equal(h.session().step, STEPS.WAITING_FOR_PHONE);
+});
+
+test('a quick reply from an earlier step is answered with the menu and changes nothing', async () => {
+  const h = setup();
+  for (const payload of [quantityPayload(2), USE_SAVED_DETAILS_PAYLOAD, NEW_DETAILS_PAYLOAD]) {
+    const [reply] = await h.tap(payload);
+    assert.equal(reply.rule, 'button_stale');
+    assert.deepEqual(reply.quickReplies, quick.MENU);
+    assert.equal(h.session().step, STEPS.IDLE);
+  }
+  await h.tap(orderProductPayload(FIRST.id));
+  await h.tap(quantityPayload(2));
+  assert.equal((await h.tap(quantityPayload(4)))[0].rule, 'button_stale');
+  assert.equal(h.session().quantity, 2);
+  assert.equal(h.session().step, STEPS.WAITING_FOR_PHONE);
+});
+
+test('the My Orders and Support quick replies work like 2 and 3', async () => {
+  const h = setup();
+  assertSingleText(await h.tap(MY_ORDERS_PAYLOAD), 'order_info', texts.orderInfo([]));
+  assertSingleText(await h.tap(SUPPORT_PAYLOAD), 'support', texts.SUPPORT);
+});
+
+// --- returning customers -------------------------------------------------------------------
+
+// Places one confirmed order, so the customer has saved details.
+async function orderOnce(h, who = ALICE, details = {}) {
+  await reachSummary(h, who, details);
+  await h.say('1', who);
+}
+
+test('a returning customer is offered the phone and address of their last order', async () => {
+  const h = setup();
+  await orderOnce(h);
+  await h.tap(orderProductPayload(SECOND.id));
+  const [offer] = await h.say('1');
+  assert.equal(offer.rule, 'saved_details');
+  assert.equal(offer.text, texts.savedDetails({ phone: PHONE, address: ADDRESS }));
+  assert.deepEqual(offer.quickReplies, quick.SAVED_DETAILS);
+  assert.equal(h.session().step, STEPS.WAITING_FOR_SAVED_DETAILS);
+
+  const [summary] = await h.tap(USE_SAVED_DETAILS_PAYLOAD);
+  assert.equal(summary.kind, 'order_confirmation');
+  assert.equal(summary.text, summaryText(SECOND, 1, PHONE, ADDRESS));
+  await h.say('1');
+  const [latest] = h.orders.listByCustomer(ALICE.psid, { limit: 1 });
+  assert.equal(latest.productId, SECOND.id);
+  assert.equal(latest.phone, PHONE);
+  assert.equal(latest.address, ADDRESS);
+});
+
+test('typing 1, yes or হ্যাঁ uses the saved details; 2, no or না asks for new ones', async () => {
+  for (const word of ['1', 'yes', 'হ্যাঁ']) {
+    const h = setup();
+    await orderOnce(h);
+    await h.tap(orderProductPayload(FIRST.id));
+    await h.say('2');
+    assert.equal((await h.say(word))[0].rule, 'order_summary');
+  }
+  for (const word of ['2', 'no', 'না']) {
+    const h = setup();
+    await orderOnce(h);
+    await h.tap(orderProductPayload(FIRST.id));
+    await h.say('2');
+    assertSingleText(await h.say(word), 'new_details', texts.ASK_PHONE);
+    assert.equal(h.session().step, STEPS.WAITING_FOR_PHONE);
+    assert.equal(h.session().phone, null);
+    assert.equal(h.session().address, null);
+  }
+});
+
+test('the New details quick reply asks for a new phone and address, which are then used', async () => {
+  const h = setup();
+  await orderOnce(h);
+  await h.tap(orderProductPayload(FIRST.id));
+  await h.say('2');
+  assertSingleText(await h.tap(NEW_DETAILS_PAYLOAD), 'new_details', texts.ASK_PHONE);
+  await h.say('01898765432');
+  const [summary] = await h.say('Flat 4B, Lake Road, Dhaka 1212');
+  assert.equal(summary.text, summaryText(FIRST, 2, '01898765432', 'Flat 4B, Lake Road, Dhaka 1212'));
+});
+
+test('typing a new phone number at the saved-details question goes on to the address', async () => {
+  const h = setup();
+  await orderOnce(h);
+  await h.tap(orderProductPayload(FIRST.id));
+  await h.say('2');
+  assertSingleText(await h.say('+8801898765432'), 'phone_ok', texts.ASK_ADDRESS);
+  assert.equal(h.session().phone, '01898765432');
+  assert.equal(h.session().step, STEPS.WAITING_FOR_ADDRESS);
+});
+
+test('anything else at the saved-details question re-asks with the same buttons', async () => {
+  const h = setup();
+  await orderOnce(h);
+  await h.tap(orderProductPayload(FIRST.id));
+  await h.say('2');
+  const [reply] = await h.say('maybe');
+  assert.equal(reply.rule, 'saved_details_invalid');
+  assert.equal(reply.text, texts.SAVED_DETAILS_INVALID);
+  assert.deepEqual(reply.quickReplies, quick.SAVED_DETAILS);
+  assert.equal(h.session().step, STEPS.WAITING_FOR_SAVED_DETAILS);
+});
+
+test('saved details belong to one customer: another customer is asked for their own', async () => {
+  const h = setup();
+  await orderOnce(h, ALICE);
+  await h.tap(orderProductPayload(FIRST.id), BOB);
+  const replies = await h.say('2', BOB);
+  assertSingleText(replies, 'quantity_ok', texts.ASK_PHONE);
+  assert.ok(!JSON.stringify(replies).includes(PHONE));
 });
 
 test('the default conversationService is wired to the real stores and catalog', async () => {

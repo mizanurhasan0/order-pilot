@@ -36,6 +36,7 @@ const RECIPIENT_FORMAT = /^\d+$/;
 
 const LABELS = {
   order: 'Order Now',
+  product: '🛒',
   confirm: '✅ Confirm',
   cancel: '❌ Cancel',
   previous: '◀ Previous',
@@ -82,25 +83,36 @@ const isLabelled = (item) =>
   isNonEmptyString(item.payload) &&
   item.payload.length <= MAX_PAYLOAD_LENGTH;
 
+// Messenger fills this quick reply with the phone number on the customer's Facebook profile
+// (and leaves it out when there is none). The tap arrives as a message whose text is the number.
+const PHONE_QUICK_REPLY = 'user_phone_number';
+const isPhoneQuickReply = (item) => isObject(item) && item.type === PHONE_QUICK_REPLY;
+
 const button = ({ title, payload }) => ({ type: 'postback', title: truncate(title, MAX_LABEL), payload });
-const quickReply = ({ title, payload }) => ({
-  content_type: 'text',
-  title: truncate(title, MAX_LABEL),
-  payload,
-});
+const quickReply = (item) =>
+  isPhoneQuickReply(item)
+    ? { content_type: PHONE_QUICK_REPLY }
+    : { content_type: 'text', title: truncate(item.title, MAX_LABEL), payload: item.payload };
 
 // Maps a list of { title, payload } items with `build`; null if the list or an item is bad.
-function buildLabelled(items, { min, max, build }) {
+function buildLabelled(items, { min, max, build, isValid = isLabelled }) {
   if (!Array.isArray(items) || items.length < min || items.length > max) return null;
   const list = Array.from(items); // turns holes of a sparse array into undefined
-  return list.every(isLabelled) ? list.map(build) : null;
+  return list.every(isValid) ? list.map(build) : null;
 }
 
 const buildButtons = (buttons) => buildLabelled(buttons, { min: 1, max: MAX_BUTTONS, build: button });
 
 // A missing list means "no quick replies" (an empty array does too).
 const buildQuickReplies = (items) =>
-  isMissing(items) ? [] : buildLabelled(items, { min: 0, max: MAX_QUICK_REPLIES, build: quickReply });
+  isMissing(items)
+    ? []
+    : buildLabelled(items, {
+        min: 0,
+        max: MAX_QUICK_REPLIES,
+        build: quickReply,
+        isValid: (item) => isLabelled(item) || isPhoneQuickReply(item),
+      });
 
 // subtitle and imageUrl are optional; when given they must be valid.
 function buildElement(element) {
@@ -145,7 +157,8 @@ function buttonMessage(text, buttons) {
   });
 }
 
-// "Name – ৳1250". A long name is shortened, never the price.
+// "P001 · Name – ৳1250". The code matches the catalog's quick replies; a long name is
+// shortened, never the code or the price.
 function productElement(product) {
   const valid =
     isObject(product) &&
@@ -156,20 +169,25 @@ function productElement(product) {
     isHttpsUrl(product.imageUrl);
   if (!valid) return null;
 
+  const prefix = `${product.id} · `;
   const suffix = ` – ৳${product.price}`;
   return {
-    title: `${truncate(product.name.trim(), MAX_CARD_TEXT - countChars(suffix))}${suffix}`,
+    title: `${prefix}${truncate(product.name.trim(), MAX_CARD_TEXT - countChars(prefix) - countChars(suffix))}${suffix}`,
     subtitle: isNonEmptyString(product.description) ? product.description : undefined,
     imageUrl: product.imageUrl,
     buttons: [{ title: LABELS.order, payload: orderProductPayload(product.id) }],
   };
 }
 
-// Previous / Next only when there is such a page; Menu is always there.
-function navigationItems(page, totalPages) {
+// One "🛒 P001" quick reply per product on the page (a tap starts the order like Order Now),
+// then Previous / Next only when there is such a page, and Menu.
+function catalogQuickReplies(products, page, totalPages) {
   const valid = Number.isInteger(page) && Number.isInteger(totalPages) && page >= 1 && page <= totalPages;
   if (!valid) return null;
   return [
+    ...products
+      .filter((product) => isObject(product) && isNonEmptyString(product.id))
+      .map((product) => ({ title: `${LABELS.product} ${product.id}`, payload: orderProductPayload(product.id) })),
     page > 1 && { title: LABELS.previous, payload: catalogPagePayload(page - 1) },
     page < totalPages && { title: LABELS.next, payload: catalogPagePayload(page + 1) },
     { title: LABELS.menu, payload: MENU_PAYLOAD },
@@ -323,14 +341,14 @@ export async function sendButtonTemplate(recipientId, text, buttons) {
   return postMessage(recipientId, message);
 }
 
-// Sends one carousel card per product, then `navText` with Previous / Next / Menu quick
-// replies. Result: { ok: true, mode: 'template' | 'text_fallback', messageId, recipientId },
-// plus navFailure when only the navigation message failed (the carousel is not resent) or
-// templateFailure when the carousel was replaced by `fallbackText`.
+// Sends one carousel card per product, then `navText` with a "🛒 P001" quick reply per product
+// and Previous / Next / Menu. Result: { ok: true, mode: 'template' | 'text_fallback', messageId,
+// recipientId }, plus navFailure when only the navigation message failed (the carousel is not
+// resent) or templateFailure when the carousel was replaced by `fallbackText`.
 export async function sendProductCatalog(recipientId, options) {
   const { products, page, totalPages, navText, fallbackText } = isObject(options) ? options : {};
   const countOk = Array.isArray(products) && products.length >= 1 && products.length <= MAX_ELEMENTS;
-  const quickReplies = navigationItems(page, totalPages);
+  const quickReplies = countOk ? catalogQuickReplies(Array.from(products), page, totalPages) : null;
   if (!countOk || quickReplies === null || !isValidText(navText) || !isValidText(fallbackText)) {
     return failure('invalid_input');
   }
@@ -352,20 +370,16 @@ export async function sendProductCatalog(recipientId, options) {
   return nav.ok ? sent : { ...sent, navFailure: describeFailure(nav) };
 }
 
-// Order summary with ✅ Confirm / ❌ Cancel buttons. A text longer than the button
-// template allows (640) is sent as plain text instead.
+// Order summary with ✅ Confirm / ❌ Cancel quick replies. Quick replies arrive as ordinary
+// messages, so confirming does not depend on the Page's postback subscription.
 export async function sendOrderConfirmation(recipientId, options) {
   const { text, draftId } = isObject(options) ? options : {};
-  const buttons = [
+  if (!isNonEmptyString(draftId) || !isValidText(text)) return failure('invalid_input');
+
+  const quickReplies = [
     { title: LABELS.confirm, payload: confirmOrderPayload(draftId) },
     { title: LABELS.cancel, payload: CANCEL_ORDER_PAYLOAD },
   ];
-  const message = isNonEmptyString(draftId) ? buttonMessage(text, buttons) : null;
-  if (message === null || !isValidText(text)) return failure('invalid_input');
-
-  if (countChars(text) > MAX_BUTTON_TEMPLATE_TEXT) {
-    const sent = await sendTextMessage(recipientId, text);
-    return sent.ok ? { ...sent, mode: 'text_fallback' } : sent;
-  }
-  return sendTemplateOrText(recipientId, message, text);
+  const sent = await sendTextMessage(recipientId, text, { quickReplies });
+  return sent.ok ? { ...sent, mode: 'quick_replies' } : sent;
 }

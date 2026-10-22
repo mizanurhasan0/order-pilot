@@ -5,8 +5,20 @@ const lines = (list) => list.join('\n');
 
 export const formatPrice = (amount) => `৳${amount}`;
 
+// Quick-reply labels (Messenger cuts them at 20 characters).
+export const BUTTONS = Object.freeze({
+  products: '🛍️ View Products',
+  myOrders: '📦 My Orders',
+  support: '👨‍💼 Support',
+  shopMore: '🛍️ Shop More',
+  menu: '🏠 Menu',
+  cancel: '❌ Cancel',
+  useSaved: '✅ Yes, use these',
+  newDetails: '✏️ New details',
+});
+
 const MENU_OPTIONS = lines(['1. 🛍️ View Products', '2. 📦 My Order Information', '3. 👨‍💼 Contact Support']);
-const MENU_PROMPT = 'অনুগ্রহ করে 1, 2 অথবা 3 লিখুন।';
+const MENU_PROMPT = 'নিচের বাটনে চাপুন, অথবা 1, 2 বা 3 লিখুন।';
 
 export const WELCOME = lines([
   'স্বাগতম! 🛍️',
@@ -41,7 +53,11 @@ const catalogHeader = (page, totalPages) => `🛍️ পণ্য তালি�
 
 // The short message sent after the product cards (the quick-reply buttons ride on it).
 export const catalogNav = ({ page, totalPages }) =>
-  lines([catalogHeader(page, totalPages), 'অর্ডার করতে পণ্যের নিচের "Order Now" বাটনে চাপ দিন।', CATALOG_HINT]);
+  lines([
+    catalogHeader(page, totalPages),
+    '🛒 অর্ডার করতে নিচে পণ্যের কোডে চাপ দিন (কোডটি ছবির নিচে নামের শুরুতে আছে)।',
+    CATALOG_HINT,
+  ]);
 
 // Plain-text version of the page, used when Messenger rejects the card template.
 export const catalogFallback = (products, page, totalPages) =>
@@ -82,14 +98,33 @@ export const orderStart = (product) =>
     `Price: ${formatPrice(product.price)}`,
     '',
     'কয়টি পিস অর্ডার করবেন?',
-    '(1 থেকে 100)',
+    'নিচের বাটনে চাপুন, অথবা 1 থেকে 100 লিখুন।',
     '',
     'বাতিল করতে cancel লিখুন।',
   ]);
 
-export const QUANTITY_INVALID = 'অনুগ্রহ করে 1 থেকে 100-এর মধ্যে একটি সংখ্যা লিখুন।';
+export const QUANTITY_INVALID = 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 থেকে 100-এর মধ্যে একটি সংখ্যা লিখুন।';
 
-export const ASK_PHONE = lines(['আপনার মোবাইল নম্বর দিন।', 'যেমন: 017XXXXXXXX']);
+export const ASK_PHONE = lines([
+  '📱 আপনার মোবাইল নম্বর দিন।',
+  'নিচে আপনার নম্বরের বাটন থাকলে চাপুন, অথবা লিখুন। যেমন: 017XXXXXXXX',
+]);
+
+// A returning customer: the phone and address of their last order, offered for this one.
+export const savedDetails = ({ phone, address }) =>
+  lines([
+    'আগের অর্ডারের তথ্য:',
+    '',
+    `Phone: ${phone}`,
+    `Address: ${address}`,
+    '',
+    'এই নম্বর আর ঠিকানায় ডেলিভারি দেব?',
+    '',
+    '1. ✅ হ্যাঁ, এই তথ্য',
+    '2. ✏️ নতুন তথ্য দেব',
+  ]);
+
+export const SAVED_DETAILS_INVALID = 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (এই তথ্য) / 2 (নতুন তথ্য) লিখুন।';
 
 export const PHONE_INVALID = lines([
   'দুঃখিত, মোবাইল নম্বরটি সঠিক মনে হচ্ছে না।',
@@ -98,7 +133,10 @@ export const PHONE_INVALID = lines([
   '017XXXXXXXX, +88017XXXXXXXX, 88017XXXXXXXX',
 ]);
 
-export const ASK_ADDRESS = 'আপনার সম্পূর্ণ ডেলিভারি ঠিকানা দিন।';
+export const ASK_ADDRESS = lines([
+  '🏠 আপনার সম্পূর্ণ ডেলিভারি ঠিকানা লিখুন।',
+  'যেমন: বাসা 12, রোড 3, টাঙ্গাইল সদর, টাঙ্গাইল',
+]);
 
 export const ADDRESS_INVALID = lines([
   'দুঃখিত, ঠিকানাটি সঠিক মনে হচ্ছে না।',
@@ -125,9 +163,12 @@ export const orderSummary = ({ name, product, quantity, unitPrice, subtotal, pho
     '2. Cancel',
   ]);
 
-export const CONFIRM_INVALID = 'অনুগ্রহ করে 1 (Confirm) অথবা 2 (Cancel) লিখুন।';
+export const CONFIRM_INVALID = 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (Confirm) / 2 (Cancel) লিখুন।';
 
 export const CONFIRM_STALE = lines(['এই কনফার্মেশনটি আর বৈধ নয়।', '', 'নতুন করে শুরু করতে menu লিখুন।']);
+
+// An old quick reply tapped after the conversation moved on.
+export const BUTTON_STALE = lines(['এই বাটনটি আর কাজ করছে না।', '', 'নিচের মেনু থেকে আবার শুরু করুন।']);
 
 // --- finishing -------------------------------------------------------------------------
 

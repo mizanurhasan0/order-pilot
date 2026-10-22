@@ -52,6 +52,7 @@ test('constants: the steps, the 30 minute ttl and the conversation key', () => {
     'IDLE',
     'BROWSING_PRODUCTS',
     'WAITING_FOR_QUANTITY',
+    'WAITING_FOR_SAVED_DETAILS',
     'WAITING_FOR_PHONE',
     'WAITING_FOR_ADDRESS',
     'WAITING_FOR_CONFIRMATION',

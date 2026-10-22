@@ -35,13 +35,13 @@ test('SUPPORT, FALLBACK and ATTACHMENT are the approved texts', () => {
 2. 📦 My Order Information
 3. 👨‍💼 Contact Support
 
-অনুগ্রহ করে 1, 2 অথবা 3 লিখুন।`,
+নিচের বাটনে চাপুন, অথবা 1, 2 বা 3 লিখুন।`,
   );
   assert.equal(
     texts.ATTACHMENT,
     `দুঃখিত, আমি এখন শুধু টেক্সট মেসেজ বুঝতে পারি।
 
-অনুগ্রহ করে 1, 2 অথবা 3 লিখুন।`,
+নিচের বাটনে চাপুন, অথবা 1, 2 বা 3 লিখুন।`,
   );
 });
 
@@ -54,19 +54,22 @@ Premium Cotton Saree
 Price: ৳1250
 
 কয়টি পিস অর্ডার করবেন?
-(1 থেকে 100)
+নিচের বাটনে চাপুন, অথবা 1 থেকে 100 লিখুন।
 
 বাতিল করতে cancel লিখুন।`,
   );
 });
 
 test('prompts for the quantity, phone and address steps', () => {
-  assert.equal(texts.QUANTITY_INVALID, 'অনুগ্রহ করে 1 থেকে 100-এর মধ্যে একটি সংখ্যা লিখুন।');
-  assert.equal(texts.ASK_PHONE, 'আপনার মোবাইল নম্বর দিন।\nযেমন: 017XXXXXXXX');
+  assert.equal(texts.QUANTITY_INVALID, 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 থেকে 100-এর মধ্যে একটি সংখ্যা লিখুন।');
+  assert.equal(
+    texts.ASK_PHONE,
+    '📱 আপনার মোবাইল নম্বর দিন।\nনিচে আপনার নম্বরের বাটন থাকলে চাপুন, অথবা লিখুন। যেমন: 017XXXXXXXX',
+  );
   assert.ok(texts.PHONE_INVALID.includes('017XXXXXXXX, +88017XXXXXXXX, 88017XXXXXXXX'));
-  assert.equal(texts.ASK_ADDRESS, 'আপনার সম্পূর্ণ ডেলিভারি ঠিকানা দিন।');
+  assert.equal(texts.ASK_ADDRESS, '🏠 আপনার সম্পূর্ণ ডেলিভারি ঠিকানা লিখুন।\nযেমন: বাসা 12, রোড 3, টাঙ্গাইল সদর, টাঙ্গাইল');
   assert.ok(texts.ADDRESS_INVALID.includes('10 থেকে 200'));
-  assert.equal(texts.CONFIRM_INVALID, 'অনুগ্রহ করে 1 (Confirm) অথবা 2 (Cancel) লিখুন।');
+  assert.equal(texts.CONFIRM_INVALID, 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (Confirm) / 2 (Cancel) লিখুন।');
 });
 
 test('orderSummary is the approved summary text', () => {
@@ -159,7 +162,7 @@ test('catalogNav and catalogFallback follow the approved wording', () => {
   assert.equal(
     texts.catalogNav({ page: 2, totalPages: 10 }),
     `🛍️ পণ্য তালিকা – পৃষ্ঠা 2/10
-অর্ডার করতে পণ্যের নিচের "Order Now" বাটনে চাপ দিন।
+🛒 অর্ডার করতে নিচে পণ্যের কোডে চাপ দিন (কোডটি ছবির নিচে নামের শুরুতে আছে)।
 next / previous / menu / cancel লিখেও যেতে পারেন।`,
   );
 
@@ -186,6 +189,30 @@ test('every text mentions how to continue (a number, menu, next or previous)', (
   }
   assert.ok(texts.CATALOG_EDGE_FIRST.includes('next'));
   assert.ok(texts.CATALOG_EDGE_LAST.includes('previous'));
+});
+
+test('savedDetails offers the last phone and address with the two choices', () => {
+  assert.equal(
+    texts.savedDetails({ phone: '01712345678', address: 'House 12, Road 3, Tangail Sadar' }),
+    `আগের অর্ডারের তথ্য:
+
+Phone: 01712345678
+Address: House 12, Road 3, Tangail Sadar
+
+এই নম্বর আর ঠিকানায় ডেলিভারি দেব?
+
+1. ✅ হ্যাঁ, এই তথ্য
+2. ✏️ নতুন তথ্য দেব`,
+  );
+  assert.equal(texts.SAVED_DETAILS_INVALID, 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (এই তথ্য) / 2 (নতুন তথ্য) লিখুন।');
+  assert.equal(texts.BUTTON_STALE, 'এই বাটনটি আর কাজ করছে না।\n\nনিচের মেনু থেকে আবার শুরু করুন।');
+});
+
+test('every quick-reply label fits Messenger’s 20 characters, so none is cut', () => {
+  assert.ok(Object.isFrozen(texts.BUTTONS));
+  for (const label of Object.values(texts.BUTTONS)) {
+    assert.ok(Array.from(label).length <= 20, label);
+  }
 });
 
 test('formatPrice writes the taka sign without separators', () => {

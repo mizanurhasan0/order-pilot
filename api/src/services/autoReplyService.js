@@ -6,6 +6,7 @@ import { maskId } from '../utils/maskId.js';
 import { conversationService } from './conversationService.js';
 import { sendOrderConfirmation, sendProductCatalog, sendTextMessage } from './messengerService.js';
 import { parsePayload } from './payloads.js';
+import * as quick from './quickReplies.js';
 import { ATTACHMENT } from './replyTexts.js';
 
 // The Messenger side of the order flow. For every webhook event it decides whether a real
@@ -22,7 +23,7 @@ import { ATTACHMENT } from './replyTexts.js';
 
 export { normalizeText } from '../utils/normalizeText.js';
 
-export const ATTACHMENT_REPLY = { rule: 'attachment', text: ATTACHMENT };
+export const ATTACHMENT_REPLY = { rule: 'attachment', text: ATTACHMENT, quickReplies: quick.MENU };
 
 const queue = createKeyedQueue();
 
@@ -37,9 +38,11 @@ const payloadInput = (kind, payload) => ({
   payloadType: parsePayload(payload)?.type ?? 'unknown', // the type prefix only, never the value
 });
 
-// What a message contains. A quick-reply payload wins over its text; a message with only
-// attachments (input: null) is answered with a fixed text and never reaches the conversation.
-// Only the number of attachments is kept: their URLs are never read or fetched.
+// What a message contains. One of our quick-reply payloads wins over its text; Messenger's own
+// phone-number quick reply carries the number itself as payload, so it is read as the typed
+// text it also contains. A message with only attachments (input: null) is answered with a
+// fixed text and never reaches the conversation. Only the number of attachments is kept:
+// their URLs are never read or fetched.
 function readMessage(message) {
   const text = typeof message.text === 'string' ? message.text : '';
   const counts = {
@@ -49,7 +52,8 @@ function readMessage(message) {
   };
 
   const quickReply = message.quick_reply?.payload;
-  if (isNonEmptyString(quickReply)) return { ...payloadInput('quick_reply', quickReply), ...counts };
+  const isOurPayload = isNonEmptyString(quickReply) && (parsePayload(quickReply) !== null || text.trim() === '');
+  if (isOurPayload) return { ...payloadInput('quick_reply', quickReply), ...counts };
   if (text.trim() !== '') return { kind: 'text', input: { type: 'text', text }, payloadType: null, ...counts };
   if (counts.attachmentCount > 0) return { kind: 'attachment', input: null, payloadType: null, ...counts };
   return { kind: 'none', input: null, payloadType: null, ...counts };
@@ -114,16 +118,14 @@ const logIgnored = (reason) => console.log('[Messenger] Ignored event', JSON.str
 
 const failureDetails = ({ reason, hint, code }) => ({ reason, hint, code });
 
-const TEMPLATE_FALLBACK_TAGS = {
-  catalog: '[SendAPI] Catalog template failed, text fallback used',
-  order_confirmation: '[SendAPI] Order summary template failed, text fallback used',
-};
-
-// A send can succeed in a degraded way: plain text instead of the template, or the product
-// cards delivered but not the navigation buttons.
-function logDegradedSend(reply, result) {
+// A catalog send can succeed in a degraded way: the product list as plain text instead of the
+// cards, or the cards delivered but not the navigation buttons.
+function logDegradedSend(result) {
   if (result.templateFailure) {
-    console.warn(TEMPLATE_FALLBACK_TAGS[reply.kind], JSON.stringify(failureDetails(result.templateFailure)));
+    console.warn(
+      '[SendAPI] Catalog template failed, text fallback used',
+      JSON.stringify(failureDetails(result.templateFailure)),
+    );
   }
   if (result.navFailure) {
     console.warn('[SendAPI] Catalog navigation failed', JSON.stringify(failureDetails(result.navFailure)));
@@ -136,7 +138,7 @@ function logSendResult(senderId, reply, result) {
       '[SendAPI] Reply sent successfully',
       JSON.stringify({ senderId, rule: reply.rule, messageId: result.messageId ?? null, mode: result.mode }),
     );
-    logDegradedSend(reply, result);
+    logDegradedSend(result);
     return;
   }
   console.error(
@@ -179,7 +181,7 @@ function logUnexpected(err) {
 // --- answering -----------------------------------------------------------------------------
 
 const SENDERS = {
-  text: (psid, reply) => sendTextMessage(psid, reply.text),
+  text: (psid, reply) => sendTextMessage(psid, reply.text, { quickReplies: reply.quickReplies }),
   catalog: (psid, reply) => sendProductCatalog(psid, reply),
   order_confirmation: (psid, reply) => sendOrderConfirmation(psid, { text: reply.text, draftId: reply.draftId }),
 };

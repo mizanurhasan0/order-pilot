@@ -462,7 +462,7 @@ const catalogOptions = (overrides = {}) => ({
   ...overrides,
 });
 const card = (n) => ({
-  title: `Product ${n} – ৳${1000 + n * 250}`,
+  title: `P00${n} · Product ${n} – ৳${1000 + n * 250}`,
   subtitle: `Description ${n}`,
   image_url: `https://cdn.example.com/p${n}.jpg`,
   buttons: [{ type: 'postback', title: 'Order Now', payload: `ORDER_PRODUCT:P00${n}` }],
@@ -483,6 +483,9 @@ const textBody = (text, quickReplies) => ({
   message: quickReplies ? { text, quick_replies: quickReplies } : { text },
 });
 const quickReplyOf = (title, payload) => ({ content_type: 'text', title, payload });
+// The "🛒 P001" quick replies the catalog puts before Previous / Next / Menu.
+const productQuickReplies = (count = 5) =>
+  Array.from({ length: count }, (_, i) => quickReplyOf(`🛒 P00${i + 1}`, `ORDER_PRODUCT:P00${i + 1}`));
 
 const cardInput = (overrides = {}) => ({
   title: 'Silk Saree – ৳1250',
@@ -525,6 +528,28 @@ describe('sendTextMessage: quick replies', () => {
 
     assert.deepEqual(result, { ok: true, messageId: 'm_abc123', recipientId: PSID });
     assert.deepEqual(sentBodies(fetchMock)[0], textBody('Pick one', [quickReplyOf('Yes', 'YES'), quickReplyOf('Menu', 'MENU')]));
+  });
+
+  it('sends a phone-number quick reply as Messenger expects it, next to text ones', async () => {
+    const fetchMock = mockFetch(async () => jsonResponse(successBody));
+
+    await sendTextMessage(PSID, 'Your phone?', {
+      quickReplies: [{ type: 'user_phone_number' }, { title: 'Cancel', payload: 'CANCEL_ORDER' }],
+    });
+
+    assert.deepEqual(
+      sentBodies(fetchMock)[0],
+      textBody('Your phone?', [{ content_type: 'user_phone_number' }, quickReplyOf('Cancel', 'CANCEL_ORDER')]),
+    );
+  });
+
+  it('rejects any other quick reply type without calling fetch', async () => {
+    const fetchMock = mockFetch(async () => jsonResponse(successBody));
+
+    for (const item of [{ type: 'user_email' }, { type: 'location' }, { type: 'user_phone_number ' }]) {
+      assert.deepEqual(await sendTextMessage(PSID, 'hi', { quickReplies: [item] }), INVALID_INPUT);
+    }
+    assert.equal(fetchMock.mock.callCount(), 0);
   });
 
   it('sends the plain text body when there are no quick replies', async () => {
@@ -598,7 +623,7 @@ describe('sendGenericTemplate', () => {
   it('posts the official generic template payload for 5 product cards', async () => {
     const fetchMock = mockFetch(async () => jsonResponse(successBody));
     const elements = makeProducts(5).map((product) => ({
-      title: `${product.name} – ৳${product.price}`,
+      title: `${product.id} · ${product.name} – ৳${product.price}`,
       subtitle: product.description,
       imageUrl: product.imageUrl,
       buttons: [{ title: 'Order Now', payload: `ORDER_PRODUCT:${product.id}` }],
@@ -846,6 +871,7 @@ describe('sendProductCatalog: requests', () => {
     assert.deepEqual(
       nav,
       textBody(NAV_TEXT, [
+        ...productQuickReplies(),
         quickReplyOf('◀ Previous', 'CATALOG_PAGE:1'),
         quickReplyOf('Next ▶', 'CATALOG_PAGE:3'),
         quickReplyOf('Menu', 'MENU'),
@@ -867,11 +893,14 @@ describe('sendProductCatalog: requests', () => {
       await sendProductCatalog(PSID, catalogOptions({ page, totalPages }));
 
       const nav = sentBodies(fetchMock)[1];
-      assert.deepEqual(nav.message.quick_replies, expected.map(([title, payload]) => quickReplyOf(title, payload)));
+      assert.deepEqual(nav.message.quick_replies, [
+        ...productQuickReplies(),
+        ...expected.map(([title, payload]) => quickReplyOf(title, payload)),
+      ]);
     });
   }
 
-  it('formats the price as a plain integer and keeps it when the name is too long', async () => {
+  it('puts the code first and the price last, and keeps both when the name is too long', async () => {
     const fetchMock = mockFetchSequence(ok('m_carousel'), ok('m_nav'));
     const products = [
       makeProduct(1, { name: 'Handloom Silk Saree', price: 12500 }),
@@ -882,8 +911,9 @@ describe('sendProductCatalog: requests', () => {
     await sendProductCatalog(PSID, catalogOptions({ products }));
 
     const titles = sentBodies(fetchMock)[0].message.attachment.payload.elements.map((element) => element.title);
-    assert.equal(titles[0], 'Handloom Silk Saree – ৳12500');
+    assert.equal(titles[0], 'P001 · Handloom Silk Saree – ৳12500');
     for (const [index, suffix] of [[1, ' – ৳1250'], [2, ' – ৳999']]) {
+      assert.ok(titles[index].startsWith(`P00${index + 1} · `), titles[index]);
       assert.ok(titles[index].endsWith(`…${suffix}`), titles[index]);
       assert.equal(Array.from(titles[index]).length, 80);
       assert.ok(titles[index].isWellFormed());
@@ -1043,6 +1073,7 @@ describe('sendProductCatalog: text fallback', () => {
       assert.deepEqual(
         fallback,
         textBody(FALLBACK_TEXT, [
+          ...productQuickReplies(),
           quickReplyOf('◀ Previous', 'CATALOG_PAGE:1'),
           quickReplyOf('Next ▶', 'CATALOG_PAGE:3'),
           quickReplyOf('Menu', 'MENU'),
@@ -1079,93 +1110,33 @@ describe('sendProductCatalog: text fallback', () => {
 describe('sendOrderConfirmation', () => {
   const DRAFT_ID = 'abc123def4567890';
   const SUMMARY = 'Your order:\nProduct: Silk Saree\nQuantity: 2\nConfirm?';
-  const confirmationBody = (text) => ({
-    recipient: { id: PSID },
-    messaging_type: 'RESPONSE',
-    message: {
-      attachment: {
-        type: 'template',
-        payload: {
-          template_type: 'button',
-          text,
-          buttons: [
-            { type: 'postback', title: '✅ Confirm', payload: `CONFIRM_ORDER:${DRAFT_ID}` },
-            { type: 'postback', title: '❌ Cancel', payload: 'CANCEL_ORDER' },
-          ],
-        },
-      },
-    },
-  });
+  const confirmationBody = (text) =>
+    textBody(text, [quickReplyOf('✅ Confirm', `CONFIRM_ORDER:${DRAFT_ID}`), quickReplyOf('❌ Cancel', 'CANCEL_ORDER')]);
 
-  it('sends a button template with Confirm and Cancel postbacks', async () => {
+  it('sends the summary as text with Confirm and Cancel quick replies', async () => {
     const fetchMock = mockFetchSequence(ok('m_order'));
 
     const result = await sendOrderConfirmation(PSID, { text: SUMMARY, draftId: DRAFT_ID });
 
-    assert.deepEqual(result, { ok: true, mode: 'template', messageId: 'm_order', recipientId: PSID });
+    assert.deepEqual(result, { ok: true, mode: 'quick_replies', messageId: 'm_order', recipientId: PSID });
     assert.equal(fetchMock.mock.callCount(), 1);
     assert.deepEqual(sentBodies(fetchMock)[0], confirmationBody(SUMMARY));
   });
 
-  it('counts code points: 400 emoji (800 UTF-16 units) still use the template', async () => {
+  it('sends a summary of up to 2000 characters in one message', async () => {
     const fetchMock = mockFetchSequence(ok('m_order'));
-    const text = '😀'.repeat(400);
+    const text = `${'a'.repeat(1990)}\nConfirm?`;
 
-    const result = await sendOrderConfirmation(PSID, { text, draftId: DRAFT_ID });
-
-    assert.equal(result.mode, 'template');
+    assert.equal((await sendOrderConfirmation(PSID, { text, draftId: DRAFT_ID })).ok, true);
     assert.deepEqual(sentBodies(fetchMock)[0], confirmationBody(text));
   });
 
-  it('uses the template for exactly 640 characters', async () => {
-    const fetchMock = mockFetchSequence(ok('m_order'));
-
-    const result = await sendOrderConfirmation(PSID, { text: 'a'.repeat(640), draftId: DRAFT_ID });
-
-    assert.equal(result.mode, 'template');
-    assert.deepEqual(sentBodies(fetchMock)[0], confirmationBody('a'.repeat(640)));
-  });
-
-  it('skips the template for a text over 640 characters and sends plain text', async () => {
-    const fetchMock = mockFetchSequence(ok('m_plain'));
-    const text = `${'a'.repeat(700)}\nConfirm?`;
-
-    const result = await sendOrderConfirmation(PSID, { text, draftId: DRAFT_ID });
-
-    assert.deepEqual(result, { ok: true, mode: 'text_fallback', messageId: 'm_plain', recipientId: PSID });
-    assert.equal(fetchMock.mock.callCount(), 1);
-    assert.deepEqual(sentBodies(fetchMock)[0], textBody(text));
-  });
-
-  it('returns the failure of a long plain text as is', async () => {
-    const fetchMock = mockFetchSequence(throwing(timeoutError()), ok('m_again'));
-
-    const result = await sendOrderConfirmation(PSID, { text: 'a'.repeat(700), draftId: DRAFT_ID });
-
-    assert.deepEqual(result, { ok: false, reason: 'timeout', status: null, error: null, hint: null });
-    assert.equal(fetchMock.mock.callCount(), 1);
-  });
-
-  for (const [name, step, code, hint] of FALLBACK_CASES) {
-    it(`falls back to the plain text after ${name}`, async () => {
-      const fetchMock = mockFetchSequence(step, ok('m_text'));
-
-      const result = await sendOrderConfirmation(PSID, { text: SUMMARY, draftId: DRAFT_ID });
-
-      assert.deepEqual(result, {
-        ok: true,
-        mode: 'text_fallback',
-        messageId: 'm_text',
-        recipientId: PSID,
-        templateFailure: { reason: 'graph_error', hint, code },
-      });
-      assert.deepEqual(sentBodies(fetchMock).map((body) => Boolean(body.message.attachment)), [true, false]);
-      assert.deepEqual(sentBodies(fetchMock)[1], textBody(SUMMARY));
-    });
-  }
-
-  for (const [name, step, reason, hint] of NO_FALLBACK_CASES) {
-    it(`does not call Graph again after ${name}`, async () => {
+  const failures = [
+    ...NO_FALLBACK_CASES,
+    ...FALLBACK_CASES.map(([name, step, , hint]) => [name, step, 'graph_error', hint]),
+  ];
+  for (const [name, step, reason, hint] of failures) {
+    it(`returns the failure after ${name} and does not call Graph again`, async () => {
       const fetchMock = mockFetchSequence(step, ok('m_text'));
 
       const result = await sendOrderConfirmation(PSID, { text: SUMMARY, draftId: DRAFT_ID });

@@ -5,6 +5,7 @@ import { conversationService } from '../src/services/conversationService.js';
 import { createDedupeCache } from '../src/services/dedupeCache.js';
 import { catalogPagePayload, MENU_PAYLOAD, orderProductPayload } from '../src/services/payloads.js';
 import { getCatalogPage } from '../src/services/productService.js';
+import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
 import { orderStore } from '../src/store/orderStore.js';
 import { STEPS, conversationKey, sessionStore } from '../src/store/sessionStore.js';
@@ -23,7 +24,10 @@ Tangail Botiques-এ আপনাকে স্বাগতম।
 
 const ATTACHMENT_TEXT = `দুঃখিত, আমি এখন শুধু টেক্সট মেসেজ বুঝতে পারি।
 
-অনুগ্রহ করে 1, 2 অথবা 3 লিখুন।`;
+নিচের বাটনে চাপুন, অথবা 1, 2 বা 3 লিখুন।`;
+
+// The menu quick replies as the Send API receives them.
+const MENU_QUICK_REPLIES = quick.MENU.map(({ title, payload }) => ({ content_type: 'text', title, payload }));
 
 describe('normalizeText', () => {
   test('trims the message', () => {
@@ -84,7 +88,7 @@ describe('normalizeText', () => {
 
 describe('ATTACHMENT_REPLY', () => {
   test('is the attachment rule with its text', () => {
-    assert.deepEqual({ ...ATTACHMENT_REPLY }, { rule: 'attachment', text: texts.ATTACHMENT });
+    assert.deepEqual({ ...ATTACHMENT_REPLY }, { rule: 'attachment', text: texts.ATTACHMENT, quickReplies: quick.MENU });
     assert.equal(ATTACHMENT_REPLY.text, ATTACHMENT_TEXT);
   });
 
@@ -189,8 +193,8 @@ describe('processEntries', () => {
     await say('3');
     await say(PHONE);
     await say(ADDRESS);
-    const confirmButton = templateOf(sentBodies().at(-1)).buttons[0];
-    return confirmButton.payload.split(':')[1];
+    const [confirmQuickReply] = sentBodies().at(-1).message.quick_replies;
+    return confirmQuickReply.payload.split(':')[1];
   }
 
   beforeEach(() => {
@@ -234,7 +238,7 @@ describe('processEntries', () => {
       assert.deepEqual(body, {
         recipient: { id: PSID },
         messaging_type: 'RESPONSE',
-        message: { text: WELCOME_TEXT },
+        message: { text: WELCOME_TEXT, quick_replies: MENU_QUICK_REPLIES },
       });
     });
 
@@ -280,7 +284,11 @@ describe('processEntries', () => {
         assert.equal(nav.message.text, texts.catalogNav(firstPage));
         assert.deepEqual(
           quickReplyPayloads(nav),
-          [...(firstPage.hasNext ? [catalogPagePayload(2)] : []), MENU_PAYLOAD],
+          [
+            ...firstPage.items.map((item) => orderProductPayload(item.id)),
+            ...(firstPage.hasNext ? [catalogPagePayload(2)] : []),
+            MENU_PAYLOAD,
+          ],
         );
         assert.deepEqual(logged('[AutoReply] Matching reply rule'), [
           { rule: 'catalog', step: STEPS.BROWSING_PRODUCTS },
@@ -327,18 +335,14 @@ describe('processEntries', () => {
       });
     }
 
-    test('the order summary is sent as a button template with Confirm and Cancel', async () => {
+    test('the order summary is sent as text with Confirm and Cancel quick replies', async () => {
       const draftId = await reachSummary();
 
       const summary = sentBodies().at(-1);
-      const template = templateOf(summary);
-      assert.equal(template.template_type, 'button');
-      assert.ok(template.text.includes(PHONE));
-      assert.ok(template.text.includes(ADDRESS));
-      assert.deepEqual(
-        template.buttons.map((button) => button.payload),
-        [`CONFIRM_ORDER:${draftId}`, 'CANCEL_ORDER'],
-      );
+      assert.equal(summary.message.attachment, undefined);
+      assert.ok(summary.message.text.includes(PHONE));
+      assert.ok(summary.message.text.includes(ADDRESS));
+      assert.deepEqual(quickReplyPayloads(summary), [`CONFIRM_ORDER:${draftId}`, 'CANCEL_ORDER']);
       assert.equal(orderStore.size(), 0, 'nothing is ordered before the customer confirms');
     });
 
@@ -637,14 +641,14 @@ describe('processEntries', () => {
       assert.equal(bodies[0].message.text, 'first reply');
       assert.equal(templateOf(bodies[1]).template_type, 'generic');
       assert.equal(bodies[2].message.text, 'navigation text');
-      assert.equal(templateOf(bodies[3]).template_type, 'button');
-      assert.equal(templateOf(bodies[3]).text, 'summary text');
+      assert.equal(bodies[3].message.text, 'summary text');
+      assert.deepEqual(quickReplyPayloads(bodies[3]), ['CONFIRM_ORDER:abc123', 'CANCEL_ORDER']);
       assert.deepEqual(
         logged('[SendAPI] Reply sent successfully').map(({ rule, mode }) => [rule, mode]),
         [
           ['welcome', undefined],
           ['catalog', 'template'],
-          ['order_summary', 'template'],
+          ['order_summary', 'quick_replies'],
         ],
       );
     });
@@ -1074,24 +1078,20 @@ describe('processEntries', () => {
       assert.equal(logs.find((line) => line.tag === '[SendAPI] Catalog navigation failed').level, 'warn');
     });
 
-    test('a rejected order summary template falls back to text with its own warning', async () => {
+    test('the phone-number quick reply is answered like the typed number and never logged', async () => {
       await tap(orderProductPayload(product.id));
       await say('3');
-      await say(PHONE);
-      fetchMock.mock.mockImplementation(async (url, init) =>
-        JSON.parse(init.body).message.attachment
-          ? graphError(400, { message: 'bad', type: 'OAuthException', code: 100, fbtrace_id: 'Atr' })
-          : graphOk('m_text_summary'),
-      );
       logs.length = 0;
 
-      await say(ADDRESS);
+      await run([entryOf([quickReplyEvent('+8801712345678', '+8801712345678')])]);
 
-      assert.deepEqual(logged('[SendAPI] Order summary template failed, text fallback used'), [
-        { reason: 'graph_error', hint: 'invalid_parameter', code: 100 },
-      ]);
-      assert.equal(logged('[SendAPI] Reply sent successfully')[0].mode, 'text_fallback');
-      assertNoLeaks(PHONE, ADDRESS);
+      assert.equal(sessionStore.get(sessionKey).phone, PHONE);
+      assert.equal(sessionStore.get(sessionKey).step, STEPS.WAITING_FOR_ADDRESS);
+      assert.deepEqual(logged('[AutoReply] Matching reply rule'), [{ rule: 'phone_ok', step: STEPS.WAITING_FOR_ADDRESS }]);
+      const [incoming] = logged('[Messenger] Incoming customer message');
+      assert.equal(incoming.kind, 'text');
+      assert.equal(incoming.payloadType, null);
+      assertNoLeaks(PHONE, '1712345678');
     });
 
     test('failure logs use console.error and keep secrets and message text out', async () => {

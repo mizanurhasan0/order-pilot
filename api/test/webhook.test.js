@@ -7,6 +7,7 @@ import express from 'express';
 import router from '../src/routes/facebookWebhook.js';
 import { orderProductPayload } from '../src/services/payloads.js';
 import { getCatalogPage } from '../src/services/productService.js';
+import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
 import { orderStore } from '../src/store/orderStore.js';
 import { sessionStore } from '../src/store/sessionStore.js';
@@ -297,7 +298,10 @@ describe('Facebook webhook with automatic replies', () => {
       assert.deepEqual(call.body, {
         recipient: { id: PSID },
         messaging_type: 'RESPONSE',
-        message: { text: WELCOME_TEXT },
+        message: {
+          text: WELCOME_TEXT,
+          quick_replies: quick.MENU.map(({ title, payload }) => ({ content_type: 'text', title, payload })),
+        },
       });
       assert.equal(texts.WELCOME, WELCOME_TEXT);
       assertNothingLeaked(ACCESS_TOKEN);

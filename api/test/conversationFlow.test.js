@@ -6,8 +6,17 @@ import { inspect } from 'node:util';
 import express from 'express';
 import webhookRouter from '../src/routes/facebookWebhook.js';
 import ordersRouter from '../src/routes/orders.js';
-import { MENU_PAYLOAD, catalogPagePayload, confirmOrderPayload, orderProductPayload } from '../src/services/payloads.js';
+import {
+  MENU_PAYLOAD,
+  NEW_DETAILS_PAYLOAD,
+  USE_SAVED_DETAILS_PAYLOAD,
+  catalogPagePayload,
+  confirmOrderPayload,
+  orderProductPayload,
+  quantityPayload,
+} from '../src/services/payloads.js';
 import { getCatalogPage } from '../src/services/productService.js';
+import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
 import { orderStore } from '../src/store/orderStore.js';
 import { sessionStore } from '../src/store/sessionStore.js';
@@ -188,6 +197,7 @@ const templateOf = (body) => body.message.attachment?.payload;
 const textsOf = (bodies) => bodies.map((body) => body.message.text);
 const quickReplyPayloads = (body) => body.message.quick_replies.map((item) => item.payload);
 const buttonPayloads = (element) => element.buttons.map((button) => button.payload);
+const productPayloads = (page) => page.items.map((product) => orderProductPayload(product.id));
 
 // ---------- customers ----------
 
@@ -245,8 +255,8 @@ async function reachSummary(
   await customer.say(quantity);
   await customer.say(phone);
   const [summary] = await customer.say(address);
-  const [confirm] = templateOf(summary).buttons;
-  return { summary, draftId: confirm.payload.slice('CONFIRM_ORDER:'.length) };
+  const [confirm] = quickReplyPayloads(summary);
+  return { summary, draftId: confirm.slice('CONFIRM_ORDER:'.length) };
 }
 
 // Proves that nothing was sent for events that must be ignored: a different customer is
@@ -363,7 +373,14 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       assert.equal(call.headers.get('authorization'), `Bearer ${ACCESS_TOKEN}`);
       assert.ok(!call.url.includes(ACCESS_TOKEN));
       assert.deepEqual(bodies, [
-        { recipient: { id: customer.psid }, messaging_type: 'RESPONSE', message: { text: WELCOME_TEXT } },
+        {
+          recipient: { id: customer.psid },
+          messaging_type: 'RESPONSE',
+          message: {
+            text: WELCOME_TEXT,
+            quick_replies: quick.MENU.map(({ title, payload }) => ({ content_type: 'text', title, payload })),
+          },
+        },
       ]);
       assert.equal(texts.WELCOME, WELCOME_TEXT);
     });
@@ -381,6 +398,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
 
       template.elements.forEach((element, index) => {
         const product = PAGE_1.items[index];
+        assert.ok(element.title.startsWith(`${product.id} · `), 'the title starts with the product code');
         assert.ok(element.title.includes(`৳${product.price}`), 'the title shows the price');
         assert.ok(Array.from(element.title).length <= 80);
         assert.match(element.image_url, /^https:\/\//);
@@ -395,7 +413,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
 
       assert.equal(nav.message.text, texts.catalogNav(PAGE_1));
       assert.ok(PAGE_1.totalPages >= 2);
-      assert.deepEqual(quickReplyPayloads(nav), [catalogPagePayload(2), MENU_PAYLOAD]);
+      assert.deepEqual(quickReplyPayloads(nav), [...productPayloads(PAGE_1), catalogPagePayload(2), MENU_PAYLOAD]);
       assert.deepEqual(logged('[SendAPI] Reply sent successfully').map((data) => data.mode), ['template']);
     });
 
@@ -411,9 +429,12 @@ describe('Messenger order conversation (webhook + orders API)', () => {
         page2.items.map((product) => orderProductPayload(product.id)),
       );
       assert.equal(bodies[1].message.text, texts.catalogNav(page2));
-      const payloads = quickReplyPayloads(bodies[1]);
-      assert.equal(payloads[0], catalogPagePayload(1));
-      assert.equal(payloads.at(-1), MENU_PAYLOAD);
+      assert.deepEqual(quickReplyPayloads(bodies[1]), [
+        ...productPayloads(page2),
+        catalogPagePayload(1),
+        ...(page2.hasNext ? [catalogPagePayload(3)] : []),
+        MENU_PAYLOAD,
+      ]);
     });
 
     it('page 2 opens by typing "next", and "previous" goes back to page 1', async () => {
@@ -472,10 +493,9 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       assert.deepEqual(textsOf(await customer.say(PHONE_INPUT)), [texts.ASK_ADDRESS]);
 
       const [summary] = await customer.say(ADDRESS);
-      const template = templateOf(summary);
-      assert.equal(template.template_type, 'button');
+      assert.equal(summary.message.attachment, undefined);
       assert.equal(
-        template.text,
+        summary.message.text,
         texts.orderSummary({
           name: FIRST.name,
           quantity: 2,
@@ -486,15 +506,15 @@ describe('Messenger order conversation (webhook + orders API)', () => {
         }),
       );
       for (const part of [FIRST.name, 'Quantity: 2', `৳${FIRST.price * 2}`, PHONE, ADDRESS, 'Delivery charge: Not calculated']) {
-        assert.ok(template.text.includes(part), `the summary shows ${part}`);
+        assert.ok(summary.message.text.includes(part), `the summary shows ${part}`);
       }
 
-      assert.equal(template.buttons.length, 2);
-      const [confirm, cancel] = template.buttons;
-      assert.equal(confirm.type, 'postback');
+      assert.equal(summary.message.quick_replies.length, 2);
+      const [confirm, cancel] = summary.message.quick_replies;
+      assert.equal(confirm.content_type, 'text');
       assert.match(confirm.title, /Confirm/);
       assert.match(confirm.payload, /^CONFIRM_ORDER:[0-9a-f]{16}$/);
-      assert.equal(cancel.type, 'postback');
+      assert.equal(cancel.content_type, 'text');
       assert.match(cancel.title, /Cancel/);
       assert.equal(cancel.payload, 'CANCEL_ORDER');
     });
@@ -535,8 +555,8 @@ describe('Messenger order conversation (webhook + orders API)', () => {
         assert.deepEqual(textsOf(await customer.say(address)), [texts.ADDRESS_INVALID]);
       }
       const [summary] = await customer.say(ADDRESS);
-      assert.equal(templateOf(summary).template_type, 'button');
-      assert.ok(templateOf(summary).text.includes('Quantity: 100'));
+      assert.equal(quickReplyPayloads(summary)[1], 'CANCEL_ORDER');
+      assert.ok(summary.message.text.includes('Quantity: 100'));
       assert.deepEqual(await ordersOf(customer.psid), []);
     });
 
@@ -546,6 +566,59 @@ describe('Messenger order conversation (webhook + orders API)', () => {
 
       assert.deepEqual(textsOf(await customer.say('maybe later')), [texts.CONFIRM_INVALID]);
       assert.deepEqual(await ordersOf(customer.psid), []);
+    });
+  });
+
+  // ---------- one-tap ordering with quick replies ----------
+
+  describe('one-tap ordering', () => {
+    it('a whole order can be placed with taps and the address as the only typed text', async () => {
+      const customer = newCustomer();
+      const [welcome] = await customer.say('hi');
+      assert.deepEqual(quickReplyPayloads(welcome), quick.MENU.map((item) => item.payload));
+
+      const [, nav] = await customer.quickReply(catalogPagePayload(1), '🛍️ View Products');
+      assert.deepEqual(quickReplyPayloads(nav).slice(0, PAGE_1.items.length), productPayloads(PAGE_1));
+
+      const [askQuantity] = await customer.quickReply(orderProductPayload(FIRST.id), `🛒 ${FIRST.id}`);
+      assert.equal(askQuantity.message.text, texts.orderStart(FIRST));
+      const [askPhone] = await customer.quickReply(quantityPayload(2), '2');
+      assert.equal(askPhone.message.text, texts.ASK_PHONE);
+      assert.deepEqual(askPhone.message.quick_replies[0], { content_type: 'user_phone_number' });
+
+      // Messenger's phone quick reply carries the number from the profile as text and payload.
+      const [askAddress] = await customer.quickReply('+8801712345678', '+8801712345678');
+      assert.equal(askAddress.message.text, texts.ASK_ADDRESS);
+      const [summary] = await customer.say(ADDRESS);
+      assert.ok(summary.message.text.includes(PHONE));
+
+      const [confirmed] = await customer.quickReply(quickReplyPayloads(summary)[0], '✅ Confirm');
+      assert.ok(confirmed.message.text.includes('Order ID: ORD-'));
+      assert.deepEqual(quickReplyPayloads(confirmed), quick.AFTER_ORDER.map((item) => item.payload));
+      const [order] = await ordersOf(customer.psid);
+      assert.equal(order.phone, PHONE);
+      assert.equal(order.quantity, 2);
+    });
+
+    it('a returning customer reuses their phone and address with one tap', async () => {
+      const customer = newCustomer();
+      const { draftId } = await reachSummary(customer);
+      await customer.quickReply(confirmOrderPayload(draftId), '✅ Confirm');
+
+      await customer.quickReply(orderProductPayload(SECOND.id), `🛒 ${SECOND.id}`);
+      const [offer] = await customer.quickReply(quantityPayload(3), '3');
+      assert.equal(offer.message.text, texts.savedDetails({ phone: PHONE, address: ADDRESS }));
+      assert.deepEqual(quickReplyPayloads(offer), [USE_SAVED_DETAILS_PAYLOAD, NEW_DETAILS_PAYLOAD, 'CANCEL_ORDER']);
+
+      const [summary] = await customer.quickReply(USE_SAVED_DETAILS_PAYLOAD, '✅ Yes, use these');
+      assert.ok(summary.message.text.includes(SECOND.name) && summary.message.text.includes('Quantity: 3'));
+      await customer.quickReply(quickReplyPayloads(summary)[0], '✅ Confirm');
+
+      const [latest, ...older] = await ordersOf(customer.psid);
+      assert.equal(older.length, 1);
+      assert.equal(latest.productId, SECOND.id);
+      assert.equal(latest.phone, PHONE);
+      assert.equal(latest.address, ADDRESS);
     });
   });
 
@@ -753,14 +826,14 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       await Promise.all([alice.say(PHONE_INPUT), bob.say(bobPhone)]);
       const [[aliceSummary], [bobSummary]] = await Promise.all([alice.say(ADDRESS), bob.say(bobAddress)]);
 
-      const aliceText = templateOf(aliceSummary).text;
-      const bobText = templateOf(bobSummary).text;
+      const aliceText = aliceSummary.message.text;
+      const bobText = bobSummary.message.text;
       assert.ok(aliceText.includes(FIRST.name) && aliceText.includes('Quantity: 2') && aliceText.includes(PHONE));
       assert.ok(bobText.includes(SECOND.name) && bobText.includes('Quantity: 5') && bobText.includes(bobPhone));
       assert.ok(!aliceText.includes(bobPhone) && !aliceText.includes('Mirzapur'));
       assert.ok(!bobText.includes(PHONE) && !bobText.includes('Hidden Lane'));
 
-      const draft = (summary) => templateOf(summary).buttons[0].payload;
+      const draft = (summary) => quickReplyPayloads(summary)[0];
       assert.notEqual(draft(aliceSummary), draft(bobSummary));
       await Promise.all([alice.tap(draft(aliceSummary)), bob.tap(draft(bobSummary))]);
 
@@ -944,7 +1017,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       assert.equal(bodies[1].message.text, texts.catalogFallback(PAGE_1.items, 1, PAGE_1.totalPages));
       assert.ok(bodies[1].message.text.includes(FIRST.id));
       assert.ok(bodies[1].message.text.includes(`৳${FIRST.price}`));
-      assert.deepEqual(quickReplyPayloads(bodies[1]), [catalogPagePayload(2), MENU_PAYLOAD]);
+      assert.deepEqual(quickReplyPayloads(bodies[1]), [...productPayloads(PAGE_1), catalogPagePayload(2), MENU_PAYLOAD]);
       assert.deepEqual(logged('[SendAPI] Catalog template failed, text fallback used'), [
         { reason: 'graph_error', hint: 'invalid_parameter', code: 100 },
       ]);
@@ -954,42 +1027,6 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       assert.deepEqual(textsOf(await customer.say(FIRST.id.toLowerCase())), [texts.orderStart(FIRST)]);
       assert.deepEqual(textsOf(await customer.say('1')), [texts.ASK_PHONE]);
       assert.deepEqual(textsOf(await customer.say(PHONE_INPUT)), [texts.ASK_ADDRESS]);
-    });
-
-    it('a rejected order summary template (code 100) falls back to plain text and the order can still be confirmed', async () => {
-      const customer = newCustomer();
-      await customer.tap(orderProductPayload(FIRST.id));
-      await customer.say('1');
-      await customer.say(PHONE_INPUT);
-      graphHandler = (call) =>
-        call.body.message.attachment
-          ? graphErrorResponse({ message: 'bad template', type: 'OAuthException', code: 100, fbtrace_id: 'T101' })
-          : okResponse(call);
-
-      const bodies = await customer.say(ADDRESS);
-
-      assert.equal(bodies.length, 2);
-      assert.equal(
-        bodies[1].message.text,
-        texts.orderSummary({
-          name: FIRST.name,
-          quantity: 1,
-          unitPrice: FIRST.price,
-          subtotal: FIRST.price,
-          phone: PHONE,
-          address: ADDRESS,
-        }),
-      );
-      assert.ok(bodies[1].message.text.includes('2. Cancel'));
-      assert.deepEqual(logged('[SendAPI] Order summary template failed, text fallback used'), [
-        { reason: 'graph_error', hint: 'invalid_parameter', code: 100 },
-      ]);
-
-      // The text version asks for 1 or 2, which the conversation understands.
-      graphHandler = okResponse;
-      const [confirmed] = await customer.say('1');
-      assert.ok(confirmed.message.text.includes('Order ID: ORD-'));
-      assert.equal((await ordersOf(customer.psid)).length, 1);
     });
 
     it('Graph error 190 is logged as a failure, nothing else is sent, the webhook stays 200 and the server keeps working', async () => {
