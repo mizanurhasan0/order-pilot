@@ -1,0 +1,20 @@
+node_modules/
+.pnpm-store/
+
+# Environment files (keep the example)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
+
+# Test coverage
+coverage/

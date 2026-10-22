@@ -1,0 +1,26 @@
+{
+  "name": "orderpilot-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OrderPilot Messenger backend: Meta webhook verification and event receiver",
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.39.0",
+    "@vercel/functions": "^3.9.11",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

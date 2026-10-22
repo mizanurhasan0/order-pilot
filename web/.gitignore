@@ -1,0 +1,17 @@
+# Dependencies
+node_modules
+
+# Next.js build output
+.next
+out
+
+# Logs
+*.log
+
+# Env files (secrets); only the template is tracked
+.env*
+!.env.example
+
+# OS and TypeScript artifacts
+.DS_Store
+*.tsbuildinfo

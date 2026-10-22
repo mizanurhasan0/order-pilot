@@ -1,0 +1,55 @@
+@import 'tailwindcss';
+
+/* Design tokens. Use them as Tailwind utilities: bg-brand-700, text-ink, border-line, text-muted ... */
+@theme {
+  --color-brand-50: #f0f7f2;
+  --color-brand-100: #e3f1e7;
+  --color-brand-200: #c9e4d2;
+  --color-brand-400: #4ab878;
+  --color-brand-500: #2f8f5f;
+  --color-brand-600: #2a7350;
+  --color-brand-700: #205e46;
+  --color-brand-800: #185138;
+
+  --color-ink: #25382c;
+  --color-ink-soft: #4d6255;
+  --color-muted: #8a988e;
+  --color-subtle: #a5b0a7;
+  --color-line: #e9efea;
+  --color-line-soft: #f0f3f0;
+  --color-canvas: #f8faf8;
+  --color-surface: #ffffff;
+
+  --font-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --animate-fade-up: fade-up 0.26s ease-out both;
+  --animate-slide-in: slide-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  @keyframes fade-up {
+    from { opacity: 0.3; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slide-in {
+    from { opacity: 0.6; transform: translateX(24px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+}
+
+:root { color-scheme: light; }
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { background: var(--color-canvas); color: var(--color-ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+::selection { background: #d7eadf; }
+:focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; }
+
+.soft-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.soft-scroll::-webkit-scrollbar-thumb { background: #d8dfe1; border-radius: 100px; }
+.panel-shadow { box-shadow: 0 8px 32px rgba(25, 40, 30, 0.035); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
