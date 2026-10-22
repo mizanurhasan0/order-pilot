@@ -9,10 +9,10 @@ importers:
   .:
     dependencies:
       '@upstash/redis':
-        specifier: 1.39.0
+        specifier: ^1.39.0
         version: 1.39.0
       '@vercel/functions':
-        specifier: 3.9.11
+        specifier: ^3.9.11
         version: 3.9.11
       dotenv:
         specifier: ^18.0.8
