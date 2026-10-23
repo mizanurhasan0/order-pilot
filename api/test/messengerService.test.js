@@ -5,6 +5,7 @@ import {
   sendButtonTemplate,
   sendGenericTemplate,
   sendOrderConfirmation,
+  sendPhotoAndText,
   sendProductCatalog,
   sendTextMessage,
 } from '../src/services/messengerService.js';
@@ -1169,6 +1170,87 @@ describe('sendOrderConfirmation', () => {
   }
 });
 
+describe('sendPhotoAndText', () => {
+  const IMAGE_URL = 'https://images.example.com/saree.jpg?w=800&h=800';
+  const QUESTION = 'How many pieces?';
+  const QUANTITY = [{ title: '1', payload: 'QUANTITY:1' }, { title: '2', payload: 'QUANTITY:2' }];
+  const options = (overrides = {}) => ({ imageUrl: IMAGE_URL, text: QUESTION, quickReplies: QUANTITY, ...overrides });
+  const photoBody = (url) => ({
+    recipient: { id: PSID },
+    messaging_type: 'RESPONSE',
+    message: { attachment: { type: 'image', payload: { url } } },
+  });
+  const questionBody = textBody(QUESTION, [quickReplyOf('1', 'QUANTITY:1'), quickReplyOf('2', 'QUANTITY:2')]);
+
+  it('sends the photo, then the text with its quick replies', async () => {
+    const fetchMock = mockFetchSequence(ok('m_photo'), ok('m_text'));
+
+    const result = await sendPhotoAndText(PSID, options());
+
+    assert.deepEqual(result, { ok: true, mode: 'photo', messageId: 'm_text', recipientId: PSID });
+    assert.deepEqual(sentBodies(fetchMock), [photoBody(IMAGE_URL), questionBody]);
+  });
+
+  const photoFailures = [
+    ...FALLBACK_CASES.map(([name, step, code, hint]) => [name, step, { reason: 'graph_error', hint, code }]),
+    ['a timeout', throwing(timeoutError()), { reason: 'timeout', hint: null, code: null }],
+    ['HTTP 500', () => new Response('oops', { status: 500 }), { reason: 'http_error', hint: null, code: null }],
+  ];
+  for (const [name, step, photoFailure] of photoFailures) {
+    it(`still sends the text after the photo fails with ${name}`, async () => {
+      const fetchMock = mockFetchSequence(step, ok('m_text'));
+
+      const result = await sendPhotoAndText(PSID, options());
+
+      assert.deepEqual(result, { ok: true, mode: 'text_only', messageId: 'm_text', recipientId: PSID, photoFailure });
+      assert.deepEqual(sentBodies(fetchMock)[1], questionBody);
+    });
+  }
+
+  for (const imageUrl of [undefined, '', 'http://images.example.com/saree.jpg', 'not a url', 42]) {
+    it(`skips the photo request for the image ${JSON.stringify(imageUrl)} and sends the text`, async () => {
+      const fetchMock = mockFetchSequence(ok('m_text'));
+
+      const result = await sendPhotoAndText(PSID, options({ imageUrl }));
+
+      assert.deepEqual(result, {
+        ok: true,
+        mode: 'text_only',
+        messageId: 'm_text',
+        recipientId: PSID,
+        photoFailure: { reason: 'invalid_input', hint: null, code: null },
+      });
+      assert.deepEqual(sentBodies(fetchMock), [questionBody]);
+    });
+  }
+
+  it('returns the failure when the text fails after the photo', async () => {
+    const fetchMock = mockFetchSequence(ok('m_photo'), graphFail(10, 400, 2018278));
+
+    const result = await sendPhotoAndText(PSID, options());
+
+    assert.equal(result.ok, false);
+    assert.equal(result.hint, 'outside_messaging_window');
+    assert.equal(fetchMock.mock.callCount(), 2);
+  });
+
+  const invalid = [
+    ['a missing text', options({ text: undefined })],
+    ['an empty text', options({ text: ' ' })],
+    ['a text over 2000 characters', options({ text: 'a'.repeat(2001) })],
+    ['invalid quick replies', options({ quickReplies: [{ title: '', payload: 'X' }] })],
+  ];
+  for (const [name, value] of invalid) {
+    it(`rejects ${name} without calling fetch, so no photo goes out alone`, async () => {
+      const fetchMock = mockFetch(async () => jsonResponse(successBody));
+
+      assert.deepEqual(await sendPhotoAndText(PSID, value), INVALID_INPUT);
+      assert.deepEqual(await sendPhotoAndText('not-a-psid', options()), INVALID_INPUT);
+      assert.equal(fetchMock.mock.callCount(), 0);
+    });
+  }
+});
+
 describe('new send functions: shared guarantees', () => {
   const calls = {
     sendTextMessage: () => sendTextMessage(PSID, 'hi', { quickReplies: [{ title: 'A', payload: 'A' }] }),
@@ -1176,6 +1258,8 @@ describe('new send functions: shared guarantees', () => {
     sendButtonTemplate: () => sendButtonTemplate(PSID, 'Pick', [{ title: 'A', payload: 'A' }]),
     sendProductCatalog: () => sendProductCatalog(PSID, catalogOptions()),
     sendOrderConfirmation: () => sendOrderConfirmation(PSID, { text: 'Order?', draftId: 'abc123' }),
+    sendPhotoAndText: () =>
+      sendPhotoAndText(PSID, { imageUrl: 'https://images.example.com/a.jpg', text: 'How many?', quickReplies: [] }),
   };
 
   for (const [name, call] of Object.entries(calls)) {
@@ -1207,7 +1291,7 @@ describe('new send functions: shared guarantees', () => {
 
   const garbage = [undefined, null, 42, 'text', {}, []];
 
-  for (const fn of [sendGenericTemplate, sendButtonTemplate, sendProductCatalog, sendOrderConfirmation]) {
+  for (const fn of [sendGenericTemplate, sendButtonTemplate, sendProductCatalog, sendOrderConfirmation, sendPhotoAndText]) {
     it(`${fn.name} never rejects on garbage arguments and does no I/O`, async () => {
       const fetchMock = mockFetch(async () => jsonResponse(successBody));
 

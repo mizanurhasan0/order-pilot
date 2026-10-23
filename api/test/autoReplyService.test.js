@@ -621,12 +621,24 @@ describe('processEntries', () => {
   describe('product links (m.me ref)', () => {
     const link = orderProductPayload(product.id);
     const replyTexts = () => sentBodies().map((body) => body.message.text);
+    const photoOf = (body) => body.message.attachment;
+    // A link order starts with the product photo, then the quantity question.
+    const assertPhotoThenQuestion = () => {
+      const [photo, question] = sentBodies();
+      assert.equal(sentBodies().length, 2);
+      assert.deepEqual(photoOf(photo), { type: 'image', payload: { url: product.imageUrl } });
+      assert.equal(question.message.text, texts.orderStart(product));
+      assert.deepEqual(quickReplyPayloads(question), quick.QUANTITY.map((item) => item.payload));
+    };
 
-    test('opening the chat through a product link asks for the quantity of that product', async () => {
+    test('opening the chat through a product link shows its photo and asks for the quantity', async () => {
       await run([entryOf([referralEvent(link)])]);
 
-      assert.deepEqual(replyTexts(), [texts.orderStart(product)]);
-      assert.deepEqual(quickReplyPayloads(sentBodies()[0]), quick.QUANTITY.map((item) => item.payload));
+      assertPhotoThenQuestion();
+      assert.deepEqual(logged('[AutoReply] Matching reply rule'), [
+        { rule: 'order_start', step: STEPS.WAITING_FOR_QUANTITY },
+      ]);
+      assert.deepEqual(logged('[SendAPI] Reply sent successfully').map((data) => data.mode), ['photo']);
       const session = sessionStore.get(sessionKey);
       assert.equal(session.step, STEPS.WAITING_FOR_QUANTITY);
       assert.equal(session.productId, product.id);
@@ -636,8 +648,28 @@ describe('processEntries', () => {
     test('Get Started tapped by a new customer who came through a product link starts that order', async () => {
       await run([entryOf([postbackEvent('GET_STARTED', { referral: linkReferral(link) })])]);
 
-      assert.deepEqual(replyTexts(), [texts.orderStart(product)]);
+      assertPhotoThenQuestion();
       assert.equal(sessionStore.get(sessionKey).productId, product.id);
+    });
+
+    test('a photo Meta cannot fetch is skipped and the quantity question still goes out', async () => {
+      fetchMock.mock.mockImplementationOnce(async () =>
+        graphError(400, { message: 'Failed to fetch the image', type: 'OAuthException', code: 100 }),
+      );
+      await run([entryOf([referralEvent(link)])]);
+
+      assert.equal(sentBodies().length, 2);
+      assert.equal(sentBodies()[1].message.text, texts.orderStart(product));
+      assert.deepEqual(logged('[SendAPI] Product photo failed, text sent without it'), [
+        { reason: 'graph_error', hint: 'invalid_parameter', code: 100 },
+      ]);
+      assert.deepEqual(logged('[SendAPI] Reply sent successfully').map((data) => data.mode), ['text_only']);
+      assert.equal(sessionStore.get(sessionKey).step, STEPS.WAITING_FOR_QUANTITY);
+    });
+
+    test('tapping Order Now on a card sends no extra photo', async () => {
+      await tap(link);
+      assert.deepEqual(sentBodies().map(photoOf), [undefined]);
     });
 
     for (const ref of [undefined, '', 'summer_sale', 'MENU', 'ORDER_PRODUCT:', 'CONFIRM_ORDER:abc123']) {
@@ -688,7 +720,7 @@ describe('processEntries', () => {
       await run([entryOf([event])]);
       await run([entryOf([event])]);
 
-      assert.equal(sentRequests().length, 1);
+      assert.equal(sentRequests().length, 2); // one photo and one question
       assert.deepEqual(ignoredReasons(), ['duplicate']);
     });
 
@@ -696,7 +728,7 @@ describe('processEntries', () => {
       const first = referralEvent(link);
       await run([entryOf([first, { ...first, timestamp: first.timestamp + 1 }])]);
 
-      assert.equal(sentRequests().length, 2);
+      assert.equal(sentRequests().length, 4);
       assert.deepEqual(ignoredReasons(), []);
     });
 

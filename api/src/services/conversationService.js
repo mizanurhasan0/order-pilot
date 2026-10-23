@@ -15,6 +15,7 @@ import * as texts from './replyTexts.js';
 // customer's phone number and address.
 //
 // Reply = { kind: 'text', rule, text, quickReplies?, orderId? }
+//       | { kind: 'text_with_photo', rule, imageUrl, text, quickReplies }   (the photo goes first)
 //       | { kind: 'catalog', rule, products, page, totalPages, navText, fallbackText }
 //       | { kind: 'order_confirmation', rule, text, draftId }   (sent with Confirm / Cancel)
 
@@ -108,12 +109,15 @@ export function createConversationService({
   // ones from their last order.
 
   // Choosing a product only starts a draft. No order exists until the customer confirms.
-  async function startOrder({ key }, productId) {
+  // A customer who came through a product link has not seen the product's card, so the question
+  // comes with its photo.
+  async function startOrder({ key }, productId, { withPhoto = false } = {}) {
     const product = availableProduct(productId);
     if (!product) return [menuReply('product_not_found', texts.PRODUCT_NOT_FOUND)];
 
     await sessions.update(key, { ...NO_DRAFT, step: STEPS.WAITING_FOR_QUANTITY, page: 1, productId: product.id });
-    return [textReply('order_start', texts.orderStart(product), { quickReplies: quick.QUANTITY })];
+    const reply = textReply('order_start', texts.orderStart(product), { quickReplies: quick.QUANTITY });
+    return [withPhoto ? { ...reply, kind: 'text_with_photo', imageUrl: product.imageUrl } : reply];
   }
 
   // The phone and address of the customer's last order, when both are still valid.
@@ -280,11 +284,11 @@ export function createConversationService({
 
   // --- entry points ---
 
-  function handlePayload(ctx, payload) {
+  function handlePayload(ctx, payload, { fromLink = false } = {}) {
     const parsed = parsePayload(payload);
     switch (parsed?.type) {
       case PAYLOAD_TYPES.ORDER_PRODUCT:
-        return startOrder(ctx, parsed.arg);
+        return startOrder(ctx, parsed.arg, { withPhoto: fromLink });
       case PAYLOAD_TYPES.CATALOG_PAGE:
         return showCatalog(ctx, Number(parsed.arg), 'catalog_page');
       case PAYLOAD_TYPES.CONFIRM_ORDER:
@@ -325,7 +329,9 @@ export function createConversationService({
       const key = conversationKey(pageId, psid);
       const ctx = { key, psid, session: await sessions.get(key) };
       // Awaited here (not just returned) so a failing store lands in the catch below.
-      if (input?.type === 'payload') return await handlePayload(ctx, input.payload);
+      if (input?.type === 'payload') {
+        return await handlePayload(ctx, input.payload, { fromLink: input.fromLink === true });
+      }
       if (input?.type === 'text') return await handleText(ctx, input.text);
       return [menuReply('fallback', texts.FALLBACK)];
     } catch {

@@ -4,7 +4,7 @@ import { conversationKey } from '../store/sessionStore.js';
 import { createKeyedQueue } from '../utils/keyedQueue.js';
 import { maskId } from '../utils/maskId.js';
 import { conversationService } from './conversationService.js';
-import { sendOrderConfirmation, sendProductCatalog, sendTextMessage } from './messengerService.js';
+import { sendOrderConfirmation, sendPhotoAndText, sendProductCatalog, sendTextMessage } from './messengerService.js';
 import { parsePayload, referralPayload } from './payloads.js';
 import * as quick from './quickReplies.js';
 import { ATTACHMENT } from './replyTexts.js';
@@ -35,7 +35,8 @@ const isNonEmptyString = (value) => typeof value === 'string' && value !== '';
 
 const payloadInput = (kind, payload) => ({
   kind,
-  input: { type: 'payload', payload },
+  // A referral comes from a product link: the customer has not seen the product's card yet.
+  input: { type: 'payload', payload, fromLink: kind === 'referral' },
   payloadType: parsePayload(payload)?.type ?? 'unknown', // the type prefix only, never the value
 });
 
@@ -140,8 +141,8 @@ const logIgnored = (reason) => console.log('[Messenger] Ignored event', JSON.str
 
 const failureDetails = ({ reason, hint, code }) => ({ reason, hint, code });
 
-// A catalog send can succeed in a degraded way: the product list as plain text instead of the
-// cards, or the cards delivered but not the navigation buttons.
+// A send can succeed in a degraded way: the product list as plain text instead of the cards, the
+// cards delivered but not the navigation buttons, or a question sent without its product photo.
 function logDegradedSend(result) {
   if (result.templateFailure) {
     console.warn(
@@ -151,6 +152,12 @@ function logDegradedSend(result) {
   }
   if (result.navFailure) {
     console.warn('[SendAPI] Catalog navigation failed', JSON.stringify(failureDetails(result.navFailure)));
+  }
+  if (result.photoFailure) {
+    console.warn(
+      '[SendAPI] Product photo failed, text sent without it',
+      JSON.stringify(failureDetails(result.photoFailure)),
+    );
   }
 }
 
@@ -204,6 +211,7 @@ function logUnexpected(err) {
 
 const SENDERS = {
   text: (psid, reply) => sendTextMessage(psid, reply.text, { quickReplies: reply.quickReplies }),
+  text_with_photo: (psid, { imageUrl, text, quickReplies }) => sendPhotoAndText(psid, { imageUrl, text, quickReplies }),
   catalog: (psid, reply) => sendProductCatalog(psid, reply),
   order_confirmation: (psid, reply) => sendOrderConfirmation(psid, { text: reply.text, draftId: reply.draftId }),
 };

@@ -370,6 +370,23 @@ export async function sendProductCatalog(recipientId, options) {
   return nav.ok ? sent : { ...sent, navFailure: describeFailure(nav) };
 }
 
+// A product photo, then `text` with its quick replies. The photo is an extra: when it fails (for
+// example Meta cannot fetch the image) the text is sent anyway. Result: the text's result with
+// mode 'photo', or mode 'text_only' plus photoFailure.
+export async function sendPhotoAndText(recipientId, options) {
+  const { imageUrl, text, quickReplies } = isObject(options) ? options : {};
+  if (!isValidRecipient(recipientId) || !isValidText(text) || buildQuickReplies(quickReplies) === null) {
+    return failure('invalid_input');
+  }
+
+  const photo = isHttpsUrl(imageUrl)
+    ? await postMessage(recipientId, { attachment: { type: 'image', payload: { url: imageUrl } } })
+    : failure('invalid_input');
+  const sent = await sendTextMessage(recipientId, text, { quickReplies });
+  if (!sent.ok) return sent;
+  return photo.ok ? { ...sent, mode: 'photo' } : { ...sent, mode: 'text_only', photoFailure: describeFailure(photo) };
+}
+
 // Order summary with ✅ Confirm / ❌ Cancel quick replies. Quick replies arrive as ordinary
 // messages, so confirming does not depend on the Page's postback subscription.
 export async function sendOrderConfirmation(recipientId, options) {

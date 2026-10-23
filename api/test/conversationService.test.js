@@ -282,6 +282,32 @@ test('ORDER_PRODUCT payload asks for the quantity and creates no order', async (
   assert.equal(h.orders.size(), 0);
 });
 
+test('a product link asks for the quantity together with the product photo', async () => {
+  const h = setup();
+  const input = { type: 'payload', payload: orderProductPayload(FIRST.id), fromLink: true };
+  const replies = await h.service.handle({ ...ALICE, input });
+
+  assert.deepEqual(replies, [
+    {
+      kind: 'text_with_photo',
+      rule: 'order_start',
+      imageUrl: FIRST.imageUrl,
+      text: texts.orderStart(FIRST),
+      quickReplies: quick.QUANTITY,
+    },
+  ]);
+  assert.equal(h.session().step, STEPS.WAITING_FOR_QUANTITY);
+  assert.equal(h.session().productId, FIRST.id);
+});
+
+test('a link to an unknown product, or any other payload from a link, gets no photo', async () => {
+  const h = setup();
+  const fromLink = (payload) => h.service.handle({ ...ALICE, input: { type: 'payload', payload, fromLink: true } });
+
+  assertSingleText(await fromLink('ORDER_PRODUCT:P999'), 'product_not_found', texts.PRODUCT_NOT_FOUND);
+  assertSingleText(await fromLink(MENU_PAYLOAD), 'welcome', texts.WELCOME);
+});
+
 test('typing a product code starts an order from the menu and from the catalog', async () => {
   const h = setup();
   assertSingleText(await h.say(FIRST.id.toLowerCase()), 'order_start', texts.orderStart(FIRST));

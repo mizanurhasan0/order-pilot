@@ -435,7 +435,8 @@ describe('Facebook webhook with automatic replies', () => {
       assert.equal(res.text, 'EVENT_RECEIVED');
 
       await waitFor(() => loggedText().includes('[SendAPI] Reply sent successfully'), 'the success log');
-      assert.equal(graphCalls.length, 1);
+      assert.equal(graphCalls.length, 2);
+      assert.deepEqual(graphCalls[0].body.message, { attachment: { type: 'image', payload: { url: product.imageUrl } } });
       assert.equal(lastText(), texts.orderStart(product));
       assert.ok(loggedText().includes('"type":"referral"'));
       assert.ok(loggedText().includes('"hasRef":true'));

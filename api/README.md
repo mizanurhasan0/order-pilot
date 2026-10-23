@@ -803,7 +803,7 @@ Share one link per product in a post:
 https://m.me/<PAGE_USERNAME>?ref=ORDER_PRODUCT:P001
 ```
 
-`<PAGE_USERNAME>` is the Page's username (the part after `facebook.com/`). When a customer taps the link, Messenger opens the chat with the Page and the bot answers as if **Order Now** had been tapped on that product: it asks for the quantity, and replaces a draft in progress. An unknown or unavailable id gives `product_not_found`.
+`<PAGE_USERNAME>` is the Page's username (the part after `facebook.com/`). When a customer taps the link, Messenger opens the chat with the Page and the bot answers as if **Order Now** had been tapped on that product, with one difference: the customer never saw the product's card, so the bot first sends the product photo, then asks for the quantity. It replaces a draft in progress. An unknown or unavailable id gives `product_not_found`. If Meta cannot load the photo, the question is sent without it and the log shows `[SendAPI] Product photo failed, text sent without it`.
 
 - **A customer who already chatted with the Page**: Messenger sends a `messaging_referrals` event as soon as the chat opens. Subscribe that field (section 8).
 - **A new customer** first sees the Page's **Get Started** button. Tapping it sends the `GET_STARTED` postback together with the link's ref, and the linked product wins over the welcome menu. Without a Get Started button on the Page, new customers lose the ref.
