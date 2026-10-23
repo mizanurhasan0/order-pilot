@@ -270,3 +270,98 @@ test('formatPrice writes the taka sign without separators', () => {
   assert.equal(texts.formatPrice(1250), '৳1250');
   assert.equal(texts.formatPrice(420), '৳420');
 });
+
+// --- English ---------------------------------------------------------------------------------
+
+const en = texts.textsFor('en');
+
+test('textsFor gives the Bangla set by default and for unknown languages', () => {
+  assert.equal(texts.textsFor('bn').WELCOME, texts.WELCOME);
+  assert.equal(texts.textsFor(undefined), texts.textsFor('bn'));
+  assert.equal(texts.textsFor('fr'), texts.textsFor('bn'));
+});
+
+test('both languages have exactly the same texts and buttons', () => {
+  const bn = texts.textsFor('bn');
+  assert.deepEqual(Object.keys(en).sort(), Object.keys(bn).sort());
+  assert.deepEqual(Object.keys(en.BUTTONS).sort(), Object.keys(bn.BUTTONS).sort());
+  for (const label of Object.values(en.BUTTONS)) assert.ok(Array.from(label).length <= 20, label);
+  assert.equal(bn.BUTTONS.otherLanguage, '🌐 English');
+  assert.equal(en.BUTTONS.otherLanguage, '🌐 বাংলা');
+});
+
+test('the English welcome, summary and confirmation are the approved texts', () => {
+  assert.equal(
+    en.WELCOME,
+    `Welcome! 🛍️
+
+Welcome to Tangail Botiques.
+
+Choose an option below to see our products or place an order.
+
+1. 🛍️ View Products
+2. 📦 My Orders
+3. 👨‍💼 Support`,
+  );
+  assert.equal(
+    en.orderSummary({
+      name: 'Premium Cotton Saree',
+      quantity: 2,
+      unitPrice: 1250,
+      subtotal: 2500,
+      phone: '01712345678',
+      address: 'House 12, Road 3, Tangail',
+    }),
+    `🛍️ Your order:
+
+Product: Premium Cotton Saree
+Quantity: 2
+Unit price: ৳1250
+Total: ৳2500
+Mobile: 01712345678
+Address: House 12, Road 3, Tangail
+
+Delivery charge: not added yet
+
+Shall we confirm this order?
+
+1. ✅ Confirm
+2. ❌ Cancel`,
+  );
+  assert.equal(
+    en.orderConfirmed({ id: 'ORD-1001', subtotal: 2500 }),
+    `✅ Your order is confirmed!
+
+Order ID: ORD-1001
+Total: ৳2500
+Delivery charge: not added yet
+
+Our team will contact you soon.
+
+Type "menu" to see the menu.`,
+  );
+  assert.equal(en.LANGUAGE_CHANGED, '✅ Language changed to English.');
+  assert.equal(texts.LANGUAGE_CHANGED, '✅ ভাষা বাংলা করা হয়েছে।');
+});
+
+test('the English set has no Bangla left in it, apart from the button back to Bangla', () => {
+  const product = { id: 'P001', name: 'Saree', price: 1 };
+  const order = { id: 'ORD-1', productName: 'Saree', quantity: 1, subtotal: 1, status: 'pending' };
+  const sample = [
+    ...Object.values(en).filter((value) => typeof value === 'string'),
+    ...Object.entries(en.BUTTONS).filter(([name]) => name !== 'otherLanguage').map(([, label]) => label),
+    en.catalogNav({ page: 1, totalPages: 2 }),
+    en.catalogFallback([product], 1, 2),
+    en.orderStart(product),
+    en.askPhone('01712345678'),
+    en.askAddress('House 12, Road 3'),
+    en.savedDetails({ phone: '01712345678', address: 'House 12, Road 3' }),
+    en.orderSummary({ name: 'Saree', quantity: 1, unitPrice: 1, subtotal: 1, phone: 'p', address: 'a' }),
+    en.orderConfirmed(order),
+    en.orderDuplicate(order),
+    en.orderInfo([order]),
+    en.orderInfo([]),
+  ].join('\n');
+  // The Bangla Unicode block, without the taka sign ৳ (U+09F3) that prices use in both languages.
+  assert.ok(!/[ঀ-৲৴-৿]/.test(sample), 'Bangla characters in the English texts');
+});

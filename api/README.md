@@ -39,7 +39,8 @@ Upgrading from Phase 2: no new dependencies, so `pnpm install` is not needed. Ad
 │   │   ├── messengerService.js    # Send API client: text, quick replies, generic and button templates, catalog (10 s timeout, error hints)
 │   │   ├── autoReplyService.js    # event filters, per-customer queue, reply sending, logs
 │   │   ├── conversationService.js # the ordering state machine: decides WHAT to answer
-│   │   ├── replyTexts.js          # every customer-facing text (Bangla)
+│   │   ├── replyTexts.js          # every customer-facing text, Bangla and English sets
+│   │   ├── language.js            # bn / en, Bangla default, Facebook locale -> language
 │   │   ├── payloads.js            # postback and quick-reply payload strings
 │   │   ├── productService.js      # product lists, lookup by id, Messenger catalog pages
 │   │   ├── dedupeCache.js         # in-memory message-id cache (10 minute TTL)
@@ -49,6 +50,8 @@ Upgrading from Phase 2: no new dependencies, so `pnpm install` is not needed. Ad
 │   │   ├── orderStore.js          # in-memory orders (lost on restart)
 │   │   ├── redisOrderStore.js     # the same orders in Upstash Redis
 │   │   ├── sessionStore.js        # in-memory conversation sessions (30 minutes, lost on restart)
+│   │   ├── preferenceStore.js     # each customer's language, in memory
+│   │   ├── redisPreferenceStore.js # the same in Redis (kept a year)
 │   │   └── redisSessionStore.js   # the same sessions in Upstash Redis
 │   └── utils/
 │       ├── keyedQueue.js          # runs one customer's events one after another
@@ -63,6 +66,7 @@ Upgrading from Phase 2: no new dependencies, so `pnpm install` is not needed. Ad
 │   ├── conversationService.test.js # every step of the ordering conversation
 │   ├── dedupeCache.test.js        # duplicate cache
 │   ├── keyedQueue.test.js         # per-key ordering
+│   ├── language.test.js           # locale -> language, the in-memory language store
 │   ├── messengerService.test.js   # Send API client (Meta API mocked)
 │   ├── orderStore.test.js         # in-memory orders
 │   ├── orders.api.test.js         # /api/orders over HTTP
@@ -137,6 +141,7 @@ Paste your real App secret into `META_APP_SECRET`.
 | `PAGE_ACCESS_TOKEN` | Page access token used to call the Send API. Treat it like a password. | Section 10. | none (required when `ENABLE_AUTO_REPLY=true`) |
 | `FACEBOOK_PAGE_ID` | ID of the Facebook Page that receives the messages (digits only). | Section 11. | none (required when `ENABLE_AUTO_REPLY=true`) |
 | `META_GRAPH_API_VERSION` | Graph API version used for Send API calls, format `vNN.N`. | Section 11. | `v26.0` |
+| `DETECT_LANGUAGE` | `false` turns off reading a new customer's Facebook language; everyone then starts in Bangla. Any other value (or unset) leaves it on. See "Language (বাংলা / English)" in section 15. | You choose. | on |
 
 **Phase 3 variable** (orders API):
 
@@ -902,9 +907,18 @@ P001 – Red Banarasi Style Silk Saree – ৳6200
 
 The customer orders by typing a product code. The text list carries the same পরের / আগের / মেনু buttons, and the log gets `[SendAPI] Catalog template failed, text fallback used`. This fallback happens only when Meta rejected the template itself. After a timeout, a network error, an invalid or expired token, a rate limit, an expired messaging window or an unavailable recipient, the failure is simply logged: the first attempt may already have been delivered, or the text would fail the same way, so a fallback could only create duplicates or more errors. The order summary has the same rule: if the button template is rejected it is sent as plain text, and the customer answers `1` or `2`. A summary longer than 640 characters (a very long address) is also sent as plain text.
 
+### Language (বাংলা / English)
+
+The bot speaks **Bangla by default** and **English** for customers who want it. The language belongs to the customer, not to a session: it is kept (in Redis, for a year) after orders, cancels and expired sessions.
+
+- **Detected once.** On a customer's first message the server reads their Facebook language through the User Profile API (`GET /<PSID>?fields=locale`, 3-second timeout). An English locale (`en_US`, `en_GB`, ...) gives English; `bn_IN` and everything else give Bangla. The result is stored, so later messages make no extra call. The log shows `[AutoReply] Language detected` with the language and `"source":"locale"`, or `"source":"default"` plus the Graph error when Meta did not answer.
+- **Meta's permission.** Meta answers this lookup for people with a role on the app (Development mode). For the public, the app needs **Advanced Access to user profiles** (App Review); until then the lookup fails, is logged once per customer, and they get Bangla. Accounts created with a phone number never have a profile. Set `DETECT_LANGUAGE=false` to skip the lookup entirely.
+- **The customer can switch** any time: the menu has a **🌐 English** button (**🌐 বাংলা** in English), and typing `english`, `ইংরেজি`, `bangla` or `বাংলা` does the same (`language_changed`). In the middle of an order the order is kept and the current question is asked again in the new language (`order_resumed`). A chosen language is never overwritten by detection.
+- **Everything follows the language:** every text, quick reply, product card button and catalog button. Product names, prices and order ids stay as stored. English and Bangla words are both understood in either language.
+
 ### Customer texts
 
-All wording is Bangla and lives in `src/services/replyTexts.js` (button labels too; the card and catalog buttons are in `messengerService.js`). Product names, prices and order ids are shown as stored. If you edit it, keep each text under 2000 characters (the Send API limit), each button label under 20, and keep the words the bot understands (`1`, `2`, `3`, `মেনু`, `বাতিল`, `পরের`, `আগের`) in the texts that mention them. `test/replyTexts.test.js` checks the approved wording and will tell you when a text changed.
+All wording lives in `src/services/replyTexts.js`, one complete set per language (`textsFor('bn')`, `textsFor('en')`, with the same keys; the named exports are the Bangla set). Button labels are there too; the card and catalog buttons are in `messengerService.js`. Product names, prices and order ids are shown as stored. If you edit it, keep each text under 2000 characters (the Send API limit), each button label under 20, and keep the words the bot understands (`1`, `2`, `3`, `মেনু`, `বাতিল`, `পরের`, `আগের`) in the texts that mention them. `test/replyTexts.test.js` checks the approved wording and will tell you when a text changed.
 
 ## 16. Orders API (admin)
 
@@ -1223,7 +1237,7 @@ The backend runs on Vercel as one serverless function: Vercel's zero-config Expr
 
 1. Create a Vercel project from this repository with **Root Directory** set to `api`.
 2. Add a Redis database: in the project, open Storage (or the Marketplace), pick **Upstash for Redis** on the free plan and connect it to the project. This sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`, which the app reads. A database made at upstash.com works too: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
-3. Under Settings > Environment Variables add `META_VERIFY_TOKEN`, `META_APP_SECRET`, `ADMIN_API_KEY`, and for auto-reply `ENABLE_AUTO_REPLY`, `PAGE_ACCESS_TOKEN`, `FACEBOOK_PAGE_ID`, `META_GRAPH_API_VERSION`. `PORT` is not needed.
+3. Under Settings > Environment Variables add `META_VERIFY_TOKEN`, `META_APP_SECRET`, `ADMIN_API_KEY`, and for auto-reply `ENABLE_AUTO_REPLY`, `PAGE_ACCESS_TOKEN`, `FACEBOOK_PAGE_ID`, `META_GRAPH_API_VERSION`. `DETECT_LANGUAGE` is optional (on when unset). `PORT` is not needed.
 4. Deploy, then open `https://<project>.vercel.app/health`.
 5. In Meta Developers set the Callback URL to `https://<project>.vercel.app/api/webhooks/facebook` (the production domain: preview URLs are behind Vercel's login). ngrok is no longer needed.
 

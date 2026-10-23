@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { getRedisConfig, invalidAdminVars, invalidStorageVars } from '../src/config.js';
+import { getRedisConfig, invalidAdminVars, invalidStorageVars, isLanguageDetectionEnabled } from '../src/config.js';
 
 describe('invalidAdminVars', () => {
   it('accepts a key of 16 characters or more', () => {
@@ -64,5 +64,16 @@ describe('invalidStorageVars', () => {
       { url: URL, token: 'a' },
     );
     assert.equal(getRedisConfig({}), null);
+  });
+});
+
+describe('isLanguageDetectionEnabled', () => {
+  it('is on unless DETECT_LANGUAGE is "false"', () => {
+    for (const value of [undefined, '', 'true', 'TRUE', 'yes', '1']) {
+      assert.equal(isLanguageDetectionEnabled({ DETECT_LANGUAGE: value }), true, String(value));
+    }
+    for (const value of ['false', 'FALSE', ' false ']) {
+      assert.equal(isLanguageDetectionEnabled({ DETECT_LANGUAGE: value }), false, value);
+    }
   });
 });

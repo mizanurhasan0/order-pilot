@@ -8,6 +8,7 @@ import { getCatalogPage } from '../src/services/productService.js';
 import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
 import { orderStore } from '../src/store/orderStore.js';
+import { preferenceStore } from '../src/store/preferenceStore.js';
 import { STEPS, conversationKey, sessionStore } from '../src/store/sessionStore.js';
 
 // The welcome menu and the attachment reply written out independently of replyTexts.js,
@@ -104,6 +105,7 @@ describe('processEntries', () => {
   const GRAPH_URL = `https://graph.facebook.com/v26.0/${PAGE_ID}/messages`;
   const FAKE_ENV = {
     ENABLE_AUTO_REPLY: 'true',
+    DETECT_LANGUAGE: 'false', // language detection has its own tests
     PAGE_ACCESS_TOKEN: TOKEN,
     FACEBOOK_PAGE_ID: PAGE_ID,
     META_GRAPH_API_VERSION: 'v26.0',
@@ -208,6 +210,7 @@ describe('processEntries', () => {
     fetchMock = mock.method(globalThis, 'fetch', async () => graphOk());
     cache = createDedupeCache();
     sessionStore.clear();
+    preferenceStore.clear();
     orderStore.clear();
   });
 
@@ -218,6 +221,7 @@ describe('processEntries', () => {
     } finally {
       mock.restoreAll();
       sessionStore.clear();
+      preferenceStore.clear();
       orderStore.clear();
       for (const [key, value] of Object.entries(savedEnv)) {
         if (value === undefined) delete process.env[key];
@@ -616,6 +620,81 @@ describe('processEntries', () => {
 
       assert.equal(orderStore.size(), 1);
       assert.equal(logged('[Order] Order created').length, 1);
+    });
+  });
+
+  describe('language detection', () => {
+    const EN = texts.textsFor('en');
+    const profileGets = () => fetchMock.mock.calls.filter((call) => call.arguments[1].method === 'GET');
+    const postedTexts = () =>
+      fetchMock.mock.calls
+        .filter((call) => call.arguments[1].method === 'POST')
+        .map((call) => JSON.parse(call.arguments[1].body).message.text);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+    // The profile lookup is the only GET; every reply is a POST.
+    const answerProfileWith = (respond) =>
+      fetchMock.mock.mockImplementation(async (url, init) => (init.method === 'GET' ? respond(url) : graphOk()));
+
+    beforeEach(() => {
+      process.env.DETECT_LANGUAGE = 'true';
+    });
+
+    test('an English Facebook locale makes the replies English, and is read only once', async () => {
+      answerProfileWith(() => json({ locale: 'en_US', id: PSID }));
+      await say('hi');
+      await say('hello');
+
+      assert.equal(profileGets().length, 1);
+      assert.equal(profileGets()[0].arguments[0], `https://graph.facebook.com/v26.0/${PSID}?fields=locale`);
+      assert.deepEqual(postedTexts(), [EN.WELCOME, EN.WELCOME]);
+      assert.equal(preferenceStore.getLanguage(sessionKey), 'en');
+      assert.deepEqual(logged('[AutoReply] Language detected'), [{ senderId: '…3456', language: 'en', source: 'locale' }]);
+    });
+
+    test('a Bangla or other locale keeps Bangla', async () => {
+      answerProfileWith(() => json({ locale: 'bn_IN' }));
+      await say('hi');
+      assert.deepEqual(postedTexts(), [texts.WELCOME]);
+      assert.equal(preferenceStore.getLanguage(sessionKey), 'bn');
+    });
+
+    test('when Meta does not tell (no permission yet), the customer gets Bangla and is not looked up again', async () => {
+      answerProfileWith(() => json({ error: { message: 'Needs permission', type: 'OAuthException', code: 10 } }, 400));
+      await say('hi');
+      await say('hi');
+
+      assert.equal(profileGets().length, 1);
+      assert.deepEqual(postedTexts(), [texts.WELCOME, texts.WELCOME]);
+      assert.deepEqual(logged('[AutoReply] Language detected'), [
+        { senderId: '…3456', language: 'bn', source: 'default', reason: 'graph_error', hint: 'permission_denied', code: 10 },
+      ]);
+    });
+
+    test('a language the customer already has is never looked up or overwritten', async () => {
+      preferenceStore.setLanguage(sessionKey, 'en');
+      answerProfileWith(() => json({ locale: 'bn_IN' }));
+      await say('hi');
+      assert.equal(profileGets().length, 0);
+      assert.deepEqual(postedTexts(), [EN.WELCOME]);
+    });
+
+    test('with DETECT_LANGUAGE=false nothing is looked up and everyone starts in Bangla', async () => {
+      process.env.DETECT_LANGUAGE = 'false';
+      answerProfileWith(() => json({ locale: 'en_US' }));
+      await say('hi');
+      assert.equal(profileGets().length, 0);
+      assert.deepEqual(postedTexts(), [texts.WELCOME]);
+      assert.equal(preferenceStore.getLanguage(sessionKey), null);
+    });
+
+    test('an English customer gets the catalog and order buttons in English', async () => {
+      preferenceStore.setLanguage(sessionKey, 'en');
+      await say('1');
+      const [carousel, nav] = sentBodies();
+      assert.ok(templateOf(carousel).elements.every((element) => element.buttons[0].title === '🛒 Order Now'));
+      assert.equal(nav.message.text, EN.catalogNav(firstPage));
+      assert.equal(nav.message.quick_replies.at(-1).title, '🏠 Menu');
     });
   });
 

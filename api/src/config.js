@@ -13,6 +13,12 @@ export function isAutoReplyEnabled(env = process.env) {
   return clean(env.ENABLE_AUTO_REPLY).toLowerCase() === 'true';
 }
 
+// The bot reads a new customer's Facebook language (locale) once to pick Bangla or English.
+// On unless DETECT_LANGUAGE is "false" (any case); without it every customer starts in Bangla.
+export function isLanguageDetectionEnabled(env = process.env) {
+  return clean(env.DETECT_LANGUAGE).toLowerCase() !== 'false';
+}
+
 // Names (never values) of the Send API variables that are missing or malformed.
 export function invalidSendApiVars(env = process.env) {
   const invalid = [];

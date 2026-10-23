@@ -1,4 +1,5 @@
 import { getSendApiConfig, invalidSendApiVars } from '../config.js';
+import { DEFAULT_LANGUAGE } from './language.js';
 import {
   CANCEL_ORDER_PAYLOAD,
   MENU_PAYLOAD,
@@ -8,7 +9,7 @@ import {
 } from './payloads.js';
 
 // Messenger Send API client (official Graph API endpoint): text with quick replies,
-// generic (carousel) templates and button templates.
+// generic (carousel) templates and button templates, plus the customer's Facebook language.
 //
 // There are deliberately no retries: after a timeout or a 5xx we cannot know
 // whether Meta already delivered the message, and retrying could send the
@@ -21,6 +22,7 @@ import {
 // any network call. This module does not log anything.
 
 export const SEND_TIMEOUT_MS = 10_000;
+export const PROFILE_TIMEOUT_MS = 3_000; // the first reply waits for it
 
 const MAX_TEXT_LENGTH = 2000; // Messenger's limit for a text message
 const MAX_ERROR_TEXT_LENGTH = 200;
@@ -34,15 +36,29 @@ const MAX_PAYLOAD_LENGTH = 1000;
 const IMAGE_ASPECT_RATIOS = ['square', 'horizontal'];
 const RECIPIENT_FORMAT = /^\d+$/;
 
+// Labels of the buttons this module builds itself (product cards, catalog navigation, the order
+// confirmation), per language. Callers pass `language`; anything unknown gets Bangla.
 const LABELS = {
-  order: '🛒 অর্ডার করুন',
-  product: '🛒',
-  confirm: '✅ নিশ্চিত করুন',
-  cancel: '❌ বাতিল',
-  previous: '◀ আগের',
-  next: 'পরের ▶',
-  menu: '🏠 মেনু',
+  bn: {
+    order: '🛒 অর্ডার করুন',
+    product: '🛒',
+    confirm: '✅ নিশ্চিত করুন',
+    cancel: '❌ বাতিল',
+    previous: '◀ আগের',
+    next: 'পরের ▶',
+    menu: '🏠 মেনু',
+  },
+  en: {
+    order: '🛒 Order Now',
+    product: '🛒',
+    confirm: '✅ Confirm',
+    cancel: '❌ Cancel',
+    previous: '◀ Previous',
+    next: 'Next ▶',
+    menu: '🏠 Menu',
+  },
 };
+const labelsFor = (language) => LABELS[language] ?? LABELS[DEFAULT_LANGUAGE];
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isMissing = (value) => value === undefined || value === null;
@@ -159,7 +175,7 @@ function buttonMessage(text, buttons) {
 
 // "P001 · Name – ৳1250". The code matches the catalog's quick replies; a long name is
 // shortened, never the code or the price.
-function productElement(product) {
+function productElement(product, labels) {
   const valid =
     isObject(product) &&
     isNonEmptyString(product.id) &&
@@ -175,22 +191,22 @@ function productElement(product) {
     title: `${prefix}${truncate(product.name.trim(), MAX_CARD_TEXT - countChars(prefix) - countChars(suffix))}${suffix}`,
     subtitle: isNonEmptyString(product.description) ? product.description : undefined,
     imageUrl: product.imageUrl,
-    buttons: [{ title: LABELS.order, payload: orderProductPayload(product.id) }],
+    buttons: [{ title: labels.order, payload: orderProductPayload(product.id) }],
   };
 }
 
 // One "🛒 P001" quick reply per product on the page (a tap starts the order like Order Now),
 // then Previous / Next only when there is such a page, and Menu.
-function catalogQuickReplies(products, page, totalPages) {
+function catalogQuickReplies(products, page, totalPages, labels) {
   const valid = Number.isInteger(page) && Number.isInteger(totalPages) && page >= 1 && page <= totalPages;
   if (!valid) return null;
   return [
     ...products
       .filter((product) => isObject(product) && isNonEmptyString(product.id))
-      .map((product) => ({ title: `${LABELS.product} ${product.id}`, payload: orderProductPayload(product.id) })),
-    page > 1 && { title: LABELS.previous, payload: catalogPagePayload(page - 1) },
-    page < totalPages && { title: LABELS.next, payload: catalogPagePayload(page + 1) },
-    { title: LABELS.menu, payload: MENU_PAYLOAD },
+      .map((product) => ({ title: `${labels.product} ${product.id}`, payload: orderProductPayload(product.id) })),
+    page > 1 && { title: labels.previous, payload: catalogPagePayload(page - 1) },
+    page < totalPages && { title: labels.next, payload: catalogPagePayload(page + 1) },
+    { title: labels.menu, payload: MENU_PAYLOAD },
   ].filter(Boolean);
 }
 
@@ -237,29 +253,25 @@ function normalizeGraphError(graphError, accessToken) {
   };
 }
 
-// The one place that talks to the Graph API. `message` is the already built Send API message.
-async function postMessage(recipientId, message) {
-  if (!isValidRecipient(recipientId)) return failure('invalid_input');
+// The one place that talks to the Graph API: `path` under the configured version, with the token
+// in the Authorization header only, never in the URL. Resolves to { ok: true, body } (a JSON
+// object) or a failure.
+async function callGraph(path, { method = 'GET', body: requestBody, timeoutMs = SEND_TIMEOUT_MS } = {}) {
   if (invalidSendApiVars(process.env).length > 0) return failure('config');
 
-  const { accessToken, pageId, version } = getSendApiConfig(process.env);
+  const { accessToken, version } = getSendApiConfig(process.env);
 
   let status;
   let rawBody;
   try {
-    const res = await fetch(`https://graph.facebook.com/${version}/${pageId}/messages`, {
-      method: 'POST',
-      // The token travels only in this header, never in the URL.
+    const res = await fetch(`https://graph.facebook.com/${version}/${path}`, {
+      method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+        ...(requestBody !== undefined && { 'Content-Type': 'application/json' }),
       },
-      body: JSON.stringify({
-        recipient: { id: recipientId },
-        messaging_type: 'RESPONSE',
-        message,
-      }),
-      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      ...(requestBody !== undefined && { body: JSON.stringify(requestBody) }),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     status = Number.isInteger(res.status) ? res.status : null;
     rawBody = await res.text();
@@ -276,15 +288,28 @@ async function postMessage(recipientId, message) {
   }
   if (status === null || status < 200 || status >= 300) return failure('http_error', { status });
 
-  // A 2xx with a JSON object means Meta accepted the message. A missing
-  // message_id is reported as null instead of a failure, because treating an
-  // accepted message as failed would invite a duplicate send. Anything that is
-  // not a JSON object (HTML, empty body, an array, ...) is invalid_response.
+  // Anything that is not a JSON object (HTML, empty body, an array, ...) is invalid_response.
   if (!isObject(body)) return failure('invalid_response', { status });
+  return { ok: true, body };
+}
 
+// `message` is the already built Send API message.
+async function postMessage(recipientId, message) {
+  if (!isValidRecipient(recipientId)) return failure('invalid_input');
+
+  const { pageId } = getSendApiConfig(process.env);
+  const sent = await callGraph(`${pageId}/messages`, {
+    method: 'POST',
+    body: { recipient: { id: recipientId }, messaging_type: 'RESPONSE', message },
+  });
+  if (!sent.ok) return sent;
+
+  // A 2xx with a JSON object means Meta accepted the message. A missing message_id is reported
+  // as null instead of a failure, because treating an accepted message as failed would invite a
+  // duplicate send.
   return {
     ok: true,
-    messageId: typeof body.message_id === 'string' ? body.message_id : null,
+    messageId: typeof sent.body.message_id === 'string' ? sent.body.message_id : null,
     recipientId,
   };
 }
@@ -346,16 +371,17 @@ export async function sendButtonTemplate(recipientId, text, buttons) {
 // recipientId }, plus navFailure when only the navigation message failed (the carousel is not
 // resent) or templateFailure when the carousel was replaced by `fallbackText`.
 export async function sendProductCatalog(recipientId, options) {
-  const { products, page, totalPages, navText, fallbackText } = isObject(options) ? options : {};
+  const { products, page, totalPages, navText, fallbackText, language } = isObject(options) ? options : {};
+  const labels = labelsFor(language);
   const countOk = Array.isArray(products) && products.length >= 1 && products.length <= MAX_ELEMENTS;
-  const quickReplies = countOk ? catalogQuickReplies(Array.from(products), page, totalPages) : null;
+  const quickReplies = countOk ? catalogQuickReplies(Array.from(products), page, totalPages, labels) : null;
   if (!countOk || quickReplies === null || !isValidText(navText) || !isValidText(fallbackText)) {
     return failure('invalid_input');
   }
 
   // A product that cannot become a card (for example an http:// image after someone edited
   // the catalog) must not break the whole catalog: send the plain text list instead.
-  const message = genericMessage(Array.from(products, productElement), 'square');
+  const message = genericMessage(Array.from(products, (product) => productElement(product, labels)), 'square');
   if (message === null) {
     const text = await sendTextMessage(recipientId, fallbackText, { quickReplies });
     if (!text.ok) return text;
@@ -390,13 +416,25 @@ export async function sendPhotoAndText(recipientId, options) {
 // Order summary with ✅ Confirm / ❌ Cancel quick replies. Quick replies arrive as ordinary
 // messages, so confirming does not depend on the Page's postback subscription.
 export async function sendOrderConfirmation(recipientId, options) {
-  const { text, draftId } = isObject(options) ? options : {};
+  const { text, draftId, language } = isObject(options) ? options : {};
   if (!isNonEmptyString(draftId) || !isValidText(text)) return failure('invalid_input');
 
+  const labels = labelsFor(language);
   const quickReplies = [
-    { title: LABELS.confirm, payload: confirmOrderPayload(draftId) },
-    { title: LABELS.cancel, payload: CANCEL_ORDER_PAYLOAD },
+    { title: labels.confirm, payload: confirmOrderPayload(draftId) },
+    { title: labels.cancel, payload: CANCEL_ORDER_PAYLOAD },
   ];
   const sent = await sendTextMessage(recipientId, text, { quickReplies });
   return sent.ok ? { ...sent, mode: 'quick_replies' } : sent;
+}
+
+// The customer's Facebook language (User Profile API, `locale`, for example "en_US" or "bn_IN").
+// Meta answers only for customers who messaged the Page, and for the public only once the app has
+// Advanced Access to user profiles. Accounts made with a phone number have no profile.
+// Result: { ok: true, locale } (locale is null when Meta sends none) or a failure.
+export async function getUserLocale(recipientId) {
+  if (!isValidRecipient(recipientId)) return failure('invalid_input');
+  const read = await callGraph(`${recipientId}?fields=locale`, { timeoutMs: PROFILE_TIMEOUT_MS });
+  if (!read.ok) return read;
+  return { ok: true, locale: isNonEmptyString(read.body.locale) ? read.body.locale.trim() : null };
 }

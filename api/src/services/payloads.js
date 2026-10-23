@@ -16,12 +16,14 @@ export const PAYLOAD_TYPES = Object.freeze({
   NEW_DETAILS: 'NEW_DETAILS',
   USE_SAVED_PHONE: 'USE_SAVED_PHONE', // reuse only the phone of the last order
   USE_SAVED_ADDRESS: 'USE_SAVED_ADDRESS', // reuse only the address of the last order
+  LANGUAGE: 'LANGUAGE', // LANGUAGE:en, LANGUAGE:bn
 });
 
 export const orderProductPayload = (productId) => `${PAYLOAD_TYPES.ORDER_PRODUCT}:${productId}`;
 export const catalogPagePayload = (page) => `${PAYLOAD_TYPES.CATALOG_PAGE}:${page}`;
 export const confirmOrderPayload = (draftId) => `${PAYLOAD_TYPES.CONFIRM_ORDER}:${draftId}`;
 export const quantityPayload = (quantity) => `${PAYLOAD_TYPES.QUANTITY}:${quantity}`;
+export const languagePayload = (language) => `${PAYLOAD_TYPES.LANGUAGE}:${language}`;
 export const CANCEL_ORDER_PAYLOAD = PAYLOAD_TYPES.CANCEL_ORDER;
 export const MENU_PAYLOAD = PAYLOAD_TYPES.MENU;
 export const MY_ORDERS_PAYLOAD = PAYLOAD_TYPES.MY_ORDERS;

@@ -20,6 +20,7 @@ import { CATALOG_PAGE_SIZE, getCatalogPage } from '../src/services/productServic
 import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
 import { createOrderStore } from '../src/store/orderStore.js';
+import { createPreferenceStore } from '../src/store/preferenceStore.js';
 import { SESSION_TTL_MS, STEPS, conversationKey, createSessionStore } from '../src/store/sessionStore.js';
 
 const ALICE = { pageId: 'page-1', psid: '1000000001' };
@@ -43,13 +44,15 @@ function setup({ catalog } = {}) {
   };
   const sessions = createSessionStore({ now: clock.now });
   const orders = createOrderStore();
-  const service = createConversationService({ sessions, orders, catalog });
+  const preferences = createPreferenceStore();
+  const service = createConversationService({ sessions, orders, preferences, catalog });
 
   const handle = (who, input) => service.handle({ ...who, input });
   return {
     clock,
     sessions,
     orders,
+    preferences,
     service,
     say: (text, who = ALICE) => handle(who, { type: 'text', text }),
     tap: (payload, who = ALICE) => handle(who, { type: 'payload', payload }),
@@ -448,7 +451,13 @@ test('anything but a confirm or cancel answer re-asks and keeps the draft', asyn
   // Sent like the summary, so the Confirm / Cancel quick replies come back with the reminder.
   for (const text of ['maybe', '3', 'ok', '১২', '']) {
     assert.deepEqual(await h.say(text), [
-      { kind: 'order_confirmation', rule: 'confirm_invalid', text: texts.CONFIRM_INVALID, draftId: summary.draftId },
+      {
+        kind: 'order_confirmation',
+        rule: 'confirm_invalid',
+        text: texts.CONFIRM_INVALID,
+        draftId: summary.draftId,
+        language: 'bn',
+      },
     ]);
   }
   assert.equal(h.session().step, STEPS.WAITING_FOR_CONFIRMATION);
@@ -642,6 +651,7 @@ test('menu and hi in the middle of an order keep the draft and ask the current q
       rule: 'order_resumed',
       text: texts.resumed(texts.ORDER_IN_PROGRESS, summary.text),
       draftId: summary.draftId,
+      language: 'bn',
     });
     assert.deepEqual(h.session(), before);
     assert.equal(h.orders.size(), 0);
@@ -1158,4 +1168,94 @@ test('the default conversationService is wired to the real stores and catalog', 
   assertSingleText(await ask('hi'), 'welcome', texts.WELCOME);
   assert.equal((await ask('1'))[0].kind, 'catalog');
   assertSingleText(await ask('menu'), 'welcome', texts.WELCOME);
+});
+
+// --- language ----------------------------------------------------------------------------------
+
+const EN = texts.textsFor('en');
+const EN_QUICK = quick.quickRepliesFor('en');
+const ALICE_KEY = conversationKey(ALICE.pageId, ALICE.psid);
+
+test('a customer with English stored gets English texts and buttons all the way', async () => {
+  const h = setup();
+  h.preferences.setLanguage(ALICE_KEY, 'en');
+
+  const [welcome] = await h.say('hi');
+  assert.equal(welcome.text, EN.WELCOME);
+  assert.deepEqual(welcome.quickReplies, EN_QUICK.MENU);
+
+  const [start] = await h.tap(orderProductPayload(FIRST.id));
+  assert.equal(start.text, EN.orderStart(FIRST));
+  assert.deepEqual(start.quickReplies, EN_QUICK.QUANTITY);
+  assert.equal((await h.say('2'))[0].text, EN.askPhone(null));
+  assert.equal((await h.say(PHONE))[0].text, EN.askAddress(null));
+  const [summary] = await h.say(ADDRESS);
+  assert.equal(summary.language, 'en');
+  assert.ok(summary.text.startsWith('🛍️ Your order:'));
+  assert.equal((await h.say('1'))[0].text, EN.orderConfirmed(h.orders.list()[0]));
+
+  const [catalogReply] = await h.say('1');
+  assert.equal(catalogReply.language, 'en');
+  assert.equal(catalogReply.navText, EN.catalogNav(getCatalogPage(1)));
+
+  // Somebody else is untouched and still gets Bangla.
+  assertSingleText(await h.say('hi', BOB), 'welcome', texts.WELCOME);
+});
+
+test('the 🌐 button switches the language, which outlives the session', async () => {
+  const h = setup();
+  const [welcome] = await h.say('hi');
+  const languageButton = welcome.quickReplies.at(-1);
+  assert.deepEqual(languageButton, { title: '🌐 English', payload: 'LANGUAGE:en' });
+
+  const [changed] = await h.tap(languageButton.payload);
+  assert.equal(changed.rule, 'language_changed');
+  assert.equal(changed.text, texts.resumed(EN.LANGUAGE_CHANGED, EN.WELCOME));
+  assert.deepEqual(changed.quickReplies.at(-1), { title: '🌐 বাংলা', payload: 'LANGUAGE:bn' });
+  assert.equal(h.preferences.getLanguage(ALICE_KEY), 'en');
+
+  h.clock.advance(SESSION_TTL_MS);
+  assertSingleText(await h.say('hi'), 'welcome', EN.WELCOME);
+
+  const [back] = await h.tap('LANGUAGE:bn');
+  assert.equal(back.text, texts.resumed(texts.LANGUAGE_CHANGED, texts.WELCOME));
+  assert.equal(h.preferences.getLanguage(ALICE_KEY), 'bn');
+});
+
+test('typing a language name switches too', async () => {
+  for (const [word, language] of [
+    ['english', 'en'],
+    ['English!', 'en'],
+    ['ইংরেজি', 'en'],
+    ['bangla', 'bn'],
+    ['বাংলা', 'bn'],
+  ]) {
+    const h = setup();
+    assert.equal((await h.say(word))[0].rule, 'language_changed', word);
+    assert.equal(h.preferences.getLanguage(ALICE_KEY), language, word);
+  }
+});
+
+test('switching language in the middle of an order keeps it and asks the question in the new language', async () => {
+  const h = setup();
+  await h.tap(orderProductPayload(FIRST.id));
+  await h.say('2');
+
+  const [question] = await h.say('english');
+  assert.equal(question.rule, 'order_resumed');
+  assert.equal(question.text, texts.resumed(EN.LANGUAGE_CHANGED_IN_ORDER, EN.askPhone(null)));
+  assert.deepEqual(question.quickReplies, EN_QUICK.phone(null));
+  assert.equal(h.session().step, STEPS.WAITING_FOR_PHONE);
+  assert.equal(h.session().quantity, 2);
+
+  await h.say(PHONE);
+  const [summary] = await h.say(ADDRESS);
+  assert.equal(summary.language, 'en');
+});
+
+test('an unknown language payload changes nothing', async () => {
+  const h = setup();
+  assertSingleText(await h.tap('LANGUAGE:fr'), 'welcome', texts.WELCOME);
+  assertSingleText(await h.tap('LANGUAGE'), 'welcome', texts.WELCOME);
+  assert.equal(h.preferences.getLanguage(ALICE_KEY), null);
 });

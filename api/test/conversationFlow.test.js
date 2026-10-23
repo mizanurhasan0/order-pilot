@@ -19,6 +19,7 @@ import { getCatalogPage } from '../src/services/productService.js';
 import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
 import { orderStore } from '../src/store/orderStore.js';
+import { preferenceStore } from '../src/store/preferenceStore.js';
 import { sessionStore } from '../src/store/sessionStore.js';
 
 // End-to-end test of the whole Messenger order conversation: the REAL webhook router (with
@@ -41,6 +42,7 @@ const ENV_DEFAULTS = {
   FACEBOOK_PAGE_ID: PAGE_ID,
   META_GRAPH_API_VERSION: 'v26.0',
   ENABLE_AUTO_REPLY: 'true',
+  DETECT_LANGUAGE: 'false', // language detection has its own tests
   ADMIN_API_KEY: ADMIN_KEY,
 };
 
@@ -308,6 +310,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
     customers = [];
     graphHandler = okResponse;
     sessionStore.clear();
+    preferenceStore.clear();
     orderStore.clear();
     process.on('unhandledRejection', onUnhandledRejection);
     installFetchMock();
@@ -319,6 +322,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
     mock.restoreAll();
     process.off('unhandledRejection', onUnhandledRejection);
     sessionStore.clear();
+    preferenceStore.clear();
     orderStore.clear();
     for (const [key, value] of Object.entries(savedEnv)) {
       if (value === undefined) delete process.env[key];

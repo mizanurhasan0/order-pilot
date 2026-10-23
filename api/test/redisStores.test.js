@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createRedisDedupeCache } from '../src/services/redisDedupeCache.js';
 import { createRedisOrderStore } from '../src/store/redisOrderStore.js';
+import { PREFERENCE_TTL_MS, createRedisPreferenceStore } from '../src/store/redisPreferenceStore.js';
 import { createRedisSessionStore } from '../src/store/redisSessionStore.js';
 import { PURGE_INTERVAL_MS, SESSION_TTL_MS, STEPS } from '../src/store/sessionStore.js';
 
@@ -217,5 +218,31 @@ describe('createRedisDedupeCache', () => {
     assert.equal(await cache.markIfNew('m_1'), true);
     assert.equal(await cache.markIfNew(''), false);
     assert.equal(await cache.markIfNew(undefined), false);
+  });
+});
+
+describe('createRedisPreferenceStore', () => {
+  it('remembers a language per conversation key for a year', async () => {
+    const { clock, redis } = setup();
+    const store = createRedisPreferenceStore({ redis });
+
+    assert.equal(await store.getLanguage('page:1'), null);
+    assert.equal(await store.setLanguage('page:1', 'en'), 'en');
+    assert.equal(await store.getLanguage('page:1'), 'en');
+    assert.equal(redis.strings.get('orderpilot:language:page:1').value, 'en');
+
+    clock.advance(PREFERENCE_TTL_MS - 1);
+    assert.equal(await store.getLanguage('page:1'), 'en');
+    clock.advance(1);
+    assert.equal(await store.getLanguage('page:1'), null);
+  });
+
+  it('rejects unknown languages and ignores a stored value it does not know', async () => {
+    const { redis } = setup();
+    const store = createRedisPreferenceStore({ redis });
+    await assert.rejects(store.setLanguage('page:1', 'fr'), RangeError);
+    await assert.rejects(store.setLanguage('', 'en'), TypeError);
+    await redis.set('orderpilot:language:page:2', 'xx');
+    assert.equal(await store.getLanguage('page:2'), null);
   });
 });

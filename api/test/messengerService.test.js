@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  PROFILE_TIMEOUT_MS,
   SEND_TIMEOUT_MS,
+  getUserLocale,
   sendButtonTemplate,
   sendGenericTemplate,
   sendOrderConfirmation,
@@ -1249,6 +1251,84 @@ describe('sendPhotoAndText', () => {
       assert.equal(fetchMock.mock.callCount(), 0);
     });
   }
+});
+
+describe('English labels', () => {
+  it('labels the cards and the catalog navigation in English', async () => {
+    const fetchMock = mockFetchSequence(ok('m_cards'), ok('m_nav'));
+
+    await sendProductCatalog(PSID, catalogOptions({ page: 2, language: 'en' }));
+
+    const [carousel, nav] = sentBodies(fetchMock);
+    const elements = carousel.message.attachment.payload.elements;
+    assert.ok(elements.every((element) => element.buttons[0].title === '🛒 Order Now'));
+    assert.deepEqual(nav.message.quick_replies.slice(-3), [
+      quickReplyOf('◀ Previous', 'CATALOG_PAGE:1'),
+      quickReplyOf('Next ▶', 'CATALOG_PAGE:3'),
+      quickReplyOf('🏠 Menu', 'MENU'),
+    ]);
+  });
+
+  it('labels the order confirmation buttons in English, and in Bangla for anything else', async () => {
+    const fetchMock = mockFetchSequence(ok('m_en'), ok('m_bn'), ok('m_xx'));
+
+    await sendOrderConfirmation(PSID, { text: 'Order?', draftId: 'abc123', language: 'en' });
+    await sendOrderConfirmation(PSID, { text: 'Order?', draftId: 'abc123', language: 'bn' });
+    await sendOrderConfirmation(PSID, { text: 'Order?', draftId: 'abc123', language: 'fr' });
+
+    const titles = sentBodies(fetchMock).map((body) => body.message.quick_replies.map((item) => item.title));
+    assert.deepEqual(titles, [
+      ['✅ Confirm', '❌ Cancel'],
+      ['✅ নিশ্চিত করুন', '❌ বাতিল'],
+      ['✅ নিশ্চিত করুন', '❌ বাতিল'],
+    ]);
+  });
+});
+
+describe('getUserLocale', () => {
+  it('reads the locale field of the customer with a GET and the token in the header only', async () => {
+    const fetchMock = mockFetch(async () => jsonResponse({ locale: 'en_US', id: PSID }));
+
+    assert.deepEqual(await getUserLocale(PSID), { ok: true, locale: 'en_US' });
+    const [url, init] = fetchMock.mock.calls[0].arguments;
+    assert.equal(url, `https://graph.facebook.com/v26.0/${PSID}?fields=locale`);
+    assert.equal(init.method, 'GET');
+    assert.deepEqual(init.headers, { Authorization: `Bearer ${TOKEN}` });
+    assert.equal(init.body, undefined);
+    assert.ok(!url.includes(TOKEN));
+  });
+
+  it('reports a missing locale as null', async () => {
+    mockFetch(async () => jsonResponse({ id: PSID }));
+    assert.deepEqual(await getUserLocale(PSID), { ok: true, locale: null });
+  });
+
+  it('returns Graph failures with their hint and never the token', async () => {
+    mockFetch(async () => jsonResponse(graphError(10, undefined, `no permission for ${TOKEN}`), 400));
+    const result = await getUserLocale(PSID);
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'graph_error');
+    assert.equal(result.hint, 'permission_denied');
+    assert.ok(!JSON.stringify(result).includes(TOKEN));
+  });
+
+  it('gives up after PROFILE_TIMEOUT_MS, shorter than a send', async () => {
+    assert.ok(PROFILE_TIMEOUT_MS < SEND_TIMEOUT_MS);
+    mockFetch(async () => {
+      throw timeoutError();
+    });
+    assert.equal((await getUserLocale(PSID)).reason, 'timeout');
+  });
+
+  it('rejects a bad PSID and missing configuration without calling fetch', async () => {
+    const fetchMock = mockFetch(async () => jsonResponse({ locale: 'en_US' }));
+    for (const value of [undefined, '', 'abc', '../me', 42]) {
+      assert.deepEqual(await getUserLocale(value), INVALID_INPUT);
+    }
+    delete process.env.PAGE_ACCESS_TOKEN;
+    assert.equal((await getUserLocale(PSID)).reason, 'config');
+    assert.equal(fetchMock.mock.callCount(), 0);
+  });
 });
 
 describe('new send functions: shared guarantees', () => {

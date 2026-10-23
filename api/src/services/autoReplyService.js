@@ -1,10 +1,17 @@
-import { getSendApiConfig, isAutoReplyEnabled } from '../config.js';
-import { dedupeCache, orderStore, sessionStore } from '../store/index.js';
+import { getSendApiConfig, isAutoReplyEnabled, isLanguageDetectionEnabled } from '../config.js';
+import { dedupeCache, orderStore, preferenceStore, sessionStore } from '../store/index.js';
 import { conversationKey } from '../store/sessionStore.js';
 import { createKeyedQueue } from '../utils/keyedQueue.js';
 import { maskId } from '../utils/maskId.js';
 import { conversationService } from './conversationService.js';
-import { sendOrderConfirmation, sendPhotoAndText, sendProductCatalog, sendTextMessage } from './messengerService.js';
+import { DEFAULT_LANGUAGE, languageFromLocale } from './language.js';
+import {
+  getUserLocale,
+  sendOrderConfirmation,
+  sendPhotoAndText,
+  sendProductCatalog,
+  sendTextMessage,
+} from './messengerService.js';
 import { parsePayload, referralPayload } from './payloads.js';
 
 // The Messenger side of the order flow. For every webhook event it decides whether a real
@@ -211,7 +218,7 @@ const SENDERS = {
   text: (psid, reply) => sendTextMessage(psid, reply.text, { quickReplies: reply.quickReplies }),
   text_with_photo: (psid, { imageUrl, text, quickReplies }) => sendPhotoAndText(psid, { imageUrl, text, quickReplies }),
   catalog: (psid, reply) => sendProductCatalog(psid, reply),
-  order_confirmation: (psid, reply) => sendOrderConfirmation(psid, { text: reply.text, draftId: reply.draftId }),
+  order_confirmation: (psid, { text, draftId, language }) => sendOrderConfirmation(psid, { text, draftId, language }),
 };
 
 // Sends the replies one by one, in order. After the first failure the rest are dropped: the
@@ -228,9 +235,37 @@ async function sendReplies(psid, replies, step) {
   }
 }
 
+// A new customer's first message: their Facebook language (locale) picks the bot's language,
+// English for en_*, Bangla for everything else and whenever Meta does not tell (no permission yet,
+// a phone-number account, a timeout). Read once and remembered, so later messages cost nothing;
+// the 🌐 button changes it any time. A failure here never stops the reply.
+async function rememberLanguage(pageId, psid) {
+  try {
+    if (!isLanguageDetectionEnabled()) return;
+    const key = conversationKey(pageId, psid);
+    if (await preferenceStore.getLanguage(key)) return;
+
+    const result = await getUserLocale(psid);
+    const language = result.ok ? languageFromLocale(result.locale) : DEFAULT_LANGUAGE;
+    await preferenceStore.setLanguage(key, language);
+    console.log(
+      '[AutoReply] Language detected',
+      JSON.stringify({
+        senderId: maskId(psid),
+        language,
+        source: result.ok && result.locale ? 'locale' : 'default',
+        ...(!result.ok && { reason: result.reason, hint: result.hint, code: result.error?.code ?? null }),
+      }),
+    );
+  } catch (err) {
+    logUnexpected(err);
+  }
+}
+
 // Runs in the customer's queue slot. The step is read AFTER handle(), so the log shows where
 // the conversation is now.
 async function answerCustomer(pageId, psid, input) {
+  await rememberLanguage(pageId, psid);
   const replies = await conversationService.handle({ pageId, psid, input });
   const { step } = await sessionStore.get(conversationKey(pageId, psid));
   await sendReplies(psid, replies, step);

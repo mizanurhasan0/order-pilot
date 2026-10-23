@@ -7,7 +7,9 @@ import { getRedisConfig, invalidStorageVars } from '../config.js';
 import { createDedupeCache } from '../services/dedupeCache.js';
 import { createRedisDedupeCache } from '../services/redisDedupeCache.js';
 import { orderStore as memoryOrderStore } from './orderStore.js';
+import { preferenceStore as memoryPreferenceStore } from './preferenceStore.js';
 import { createRedisOrderStore } from './redisOrderStore.js';
+import { createRedisPreferenceStore } from './redisPreferenceStore.js';
 import { createRedisSessionStore } from './redisSessionStore.js';
 import { sessionStore as memorySessionStore } from './sessionStore.js';
 
@@ -23,4 +25,5 @@ const redis = useRedis
 export const storageMode = redis ? 'redis' : 'memory';
 export const orderStore = redis ? createRedisOrderStore({ redis }) : memoryOrderStore;
 export const sessionStore = redis ? createRedisSessionStore({ redis }) : memorySessionStore;
+export const preferenceStore = redis ? createRedisPreferenceStore({ redis }) : memoryPreferenceStore;
 export const dedupeCache = redis ? createRedisDedupeCache({ redis }) : createDedupeCache();

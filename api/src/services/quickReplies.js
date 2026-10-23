@@ -1,3 +1,4 @@
+import { DEFAULT_LANGUAGE, LANGUAGES } from './language.js';
 import {
   CANCEL_ORDER_PAYLOAD,
   MENU_PAYLOAD,
@@ -8,9 +9,10 @@ import {
   USE_SAVED_DETAILS_PAYLOAD,
   USE_SAVED_PHONE_PAYLOAD,
   catalogPagePayload,
+  languagePayload,
   quantityPayload,
 } from './payloads.js';
-import { BUTTONS, savedPhoneButton } from './replyTexts.js';
+import { savedPhoneButton, textsFor } from './replyTexts.js';
 
 // The quick-reply buttons under the bot's text replies, so every step of the order can be
 // answered with a tap. A tap arrives as an ordinary message carrying the payload (no postback
@@ -19,40 +21,60 @@ import { BUTTONS, savedPhoneButton } from './replyTexts.js';
 //
 // Item = { title, payload } | { type: 'user_phone_number' } (Messenger fills in the phone
 // number from the customer's Facebook profile, and hides the button when there is none).
+//
+// quickRepliesFor(language) returns the buttons labelled in that language; the named exports
+// are the Bangla set.
 
-const cancel = { title: BUTTONS.cancel, payload: CANCEL_ORDER_PAYLOAD };
+function buttonsIn(language) {
+  const { BUTTONS } = textsFor(language);
+  const otherLanguage = LANGUAGES.find((candidate) => candidate !== language);
+  const cancel = { title: BUTTONS.cancel, payload: CANCEL_ORDER_PAYLOAD };
 
-export const MENU = Object.freeze([
-  { title: BUTTONS.products, payload: catalogPagePayload(1) },
-  { title: BUTTONS.myOrders, payload: MY_ORDERS_PAYLOAD },
-  { title: BUTTONS.support, payload: SUPPORT_PAYLOAD },
-]);
+  return Object.freeze({
+    // The menu also offers the other language (🌐 English / 🌐 বাংলা).
+    MENU: Object.freeze([
+      { title: BUTTONS.products, payload: catalogPagePayload(1) },
+      { title: BUTTONS.myOrders, payload: MY_ORDERS_PAYLOAD },
+      { title: BUTTONS.support, payload: SUPPORT_PAYLOAD },
+      { title: BUTTONS.otherLanguage, payload: languagePayload(otherLanguage) },
+    ]),
 
-export const AFTER_ORDER = Object.freeze([
-  { title: BUTTONS.shopMore, payload: catalogPagePayload(1) },
-  { title: BUTTONS.myOrders, payload: MY_ORDERS_PAYLOAD },
-  { title: BUTTONS.menu, payload: MENU_PAYLOAD },
-]);
+    AFTER_ORDER: Object.freeze([
+      { title: BUTTONS.shopMore, payload: catalogPagePayload(1) },
+      { title: BUTTONS.myOrders, payload: MY_ORDERS_PAYLOAD },
+      { title: BUTTONS.menu, payload: MENU_PAYLOAD },
+    ]),
 
-export const QUANTITY = Object.freeze([
-  ...[1, 2, 3, 4, 5].map((quantity) => ({ title: String(quantity), payload: quantityPayload(quantity) })),
-  cancel,
-]);
+    QUANTITY: Object.freeze([
+      ...[1, 2, 3, 4, 5].map((quantity) => ({ title: String(quantity), payload: quantityPayload(quantity) })),
+      cancel,
+    ]),
 
-export const SAVED_DETAILS = Object.freeze([
-  { title: BUTTONS.useSaved, payload: USE_SAVED_DETAILS_PAYLOAD },
-  { title: BUTTONS.newDetails, payload: NEW_DETAILS_PAYLOAD },
-  cancel,
-]);
+    SAVED_DETAILS: Object.freeze([
+      { title: BUTTONS.useSaved, payload: USE_SAVED_DETAILS_PAYLOAD },
+      { title: BUTTONS.newDetails, payload: NEW_DETAILS_PAYLOAD },
+      cancel,
+    ]),
 
-// The phone and address questions offer the values of the customer's last order, when there
-// are any, so a returning customer can keep one and change the other.
-export const phone = (previousPhone) =>
-  Object.freeze([
-    { type: 'user_phone_number' },
-    ...(previousPhone ? [{ title: savedPhoneButton(previousPhone), payload: USE_SAVED_PHONE_PAYLOAD }] : []),
-    cancel,
-  ]);
+    // The phone and address questions offer the values of the customer's last order, when there
+    // are any, so a returning customer can keep one and change the other.
+    phone: (previousPhone) =>
+      Object.freeze([
+        { type: 'user_phone_number' },
+        ...(previousPhone ? [{ title: savedPhoneButton(previousPhone), payload: USE_SAVED_PHONE_PAYLOAD }] : []),
+        cancel,
+      ]),
 
-export const address = (previousAddress) =>
-  Object.freeze([...(previousAddress ? [{ title: BUTTONS.savedAddress, payload: USE_SAVED_ADDRESS_PAYLOAD }] : []), cancel]);
+    address: (previousAddress) =>
+      Object.freeze([
+        ...(previousAddress ? [{ title: BUTTONS.savedAddress, payload: USE_SAVED_ADDRESS_PAYLOAD }] : []),
+        cancel,
+      ]),
+  });
+}
+
+const BY_LANGUAGE = Object.freeze(Object.fromEntries(LANGUAGES.map((language) => [language, buttonsIn(language)])));
+
+export const quickRepliesFor = (language) => BY_LANGUAGE[language] ?? BY_LANGUAGE[DEFAULT_LANGUAGE];
+
+export const { MENU, AFTER_ORDER, QUANTITY, SAVED_DETAILS, phone, address } = BY_LANGUAGE[DEFAULT_LANGUAGE];

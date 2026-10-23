@@ -10,6 +10,7 @@ import { getCatalogPage } from '../src/services/productService.js';
 import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
 import { orderStore } from '../src/store/orderStore.js';
+import { preferenceStore } from '../src/store/preferenceStore.js';
 import { sessionStore } from '../src/store/sessionStore.js';
 
 // Integration test: the REAL webhook router (signature check, parsing, auto-reply
@@ -31,6 +32,7 @@ const ENV_DEFAULTS = {
   FACEBOOK_PAGE_ID: PAGE_ID,
   META_GRAPH_API_VERSION: 'v26.0',
   ENABLE_AUTO_REPLY: 'true',
+  DETECT_LANGUAGE: 'false', // language detection has its own tests
 };
 
 // The welcome menu written out independently of replyTexts.js, so a typo there is caught.
@@ -226,6 +228,7 @@ describe('Facebook webhook with automatic replies', () => {
     unhandledRejections = [];
     graphHandler = (call) => okResponse(call.body.recipient.id);
     sessionStore.clear();
+    preferenceStore.clear();
     orderStore.clear();
     process.on('unhandledRejection', onUnhandledRejection);
     installFetchMock();
