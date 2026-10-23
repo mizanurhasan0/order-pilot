@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
-import { Check, CircleCheck, Copy, EyeOff, LoaderCircle, PackageX, RefreshCw } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { CircleCheck, EyeOff, LoaderCircle, PackageX, RefreshCw } from 'lucide-react';
 import { Alert } from '@/components/ui/Alert';
+import { CopyTextButton } from '@/components/ui/CopyTextButton';
 import { Drawer } from '@/components/ui/Drawer';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductImage } from '@/components/ui/ProductImage';
@@ -175,7 +176,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 function DrawerFooter({ productId, onClose }: { productId: string; onClose: () => void }) {
   return (
     <div className="flex gap-3">
-      <CopyIdButton id={productId} />
+      <CopyTextButton value={productId} label="Copy product ID" name={`Product ID ${productId}`} />
       <button
         type="button"
         onClick={onClose}
@@ -184,48 +185,6 @@ function DrawerFooter({ productId, onClose }: { productId: string; onClose: () =
         Back to products
       </button>
     </div>
-  );
-}
-
-function CopyIdButton({ id }: { id: string }) {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
-
-  useEffect(() => {
-    if (state === 'idle') return;
-    const timer = setTimeout(() => setState('idle'), 1800);
-    return () => clearTimeout(timer);
-  }, [state]);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(id);
-      setState('copied');
-    } catch {
-      setState('failed');
-    }
-  };
-
-  const label = state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy product ID';
-  return (
-    <>
-      <button
-        type="button"
-        onClick={copy}
-        className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-          state === 'copied'
-            ? 'border-brand-200 bg-brand-50 text-brand-700'
-            : state === 'failed'
-              ? 'border-red-200 bg-red-50 text-red-700'
-              : 'border-line text-ink-soft hover:bg-brand-50'
-        }`}
-      >
-        {state === 'copied' ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}
-        {label}
-      </button>
-      <span role="status" className="sr-only">
-        {state === 'copied' ? `Product ID ${id} copied` : state === 'failed' ? 'Could not copy the product ID' : ''}
-      </span>
-    </>
   );
 }
 

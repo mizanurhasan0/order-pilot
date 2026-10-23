@@ -16,6 +16,7 @@ import { ProductDrawer } from './ProductDrawer';
 import { ProductSearch } from './ProductSearch';
 import { ProductsPagination } from './ProductsPagination';
 import { PRODUCT_GRID_CLASS, ProductGridSkeleton } from './ProductsSkeleton';
+import { ShareProductDrawer } from './ShareProductDrawer';
 
 const sameId = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
 
@@ -27,6 +28,7 @@ export function ProductsView() {
   const { q, category, page, product: productId } = query;
   const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState<Product | null>(null);
+  const [sharing, setSharing] = useState<Product | null>(null);
   const panelRef = useRef<HTMLElement>(null);
 
   const { catalog, error: catalogError, isLoading: catalogLoading, reload: reloadCatalog } = useCatalog();
@@ -123,7 +125,7 @@ export function ProductsView() {
           className={`${PRODUCT_GRID_CLASS} transition-opacity duration-200 ${refreshing ? 'opacity-55' : ''}`}
         >
           {products.map((product) => (
-            <ProductCard key={product.id} product={product} onOpen={openProduct} />
+            <ProductCard key={product.id} product={product} onOpen={openProduct} onShare={setSharing} />
           ))}
         </div>
       </>
@@ -190,6 +192,8 @@ export function ProductsView() {
         initialProduct={initialProduct}
         onClose={closeDrawer}
       />
+
+      <ShareProductDrawer key={`share-${sharing?.id ?? 'closed'}`}product={sharing} onClose={() => setSharing(null)} />
     </>
   );
 }

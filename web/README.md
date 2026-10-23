@@ -53,8 +53,13 @@ Open http://127.0.0.1:3001. The dashboard runs on port 3001; Express stays on 30
 | ----------------- | ----------------------- | ---------------------------------------------------------------- |
 | `BACKEND_API_URL` | `http://127.0.0.1:3000` | Base URL of the Express API. Read by `proxy.ts` only.            |
 | `ADMIN_API_KEY`   | none                    | Must equal `ADMIN_API_KEY` in the Express `.env`. Server-only.   |
+| `NEXT_PUBLIC_FACEBOOK_PAGE_USERNAME` | none | Your Facebook Page's username, used for the product share links. Public. |
 
-Both are read on every request, so edits to `.env.local` apply without a restart. Never prefix them with `NEXT_PUBLIC_`. On Vercel, set them in the project settings (see "Deploying to Vercel").
+`BACKEND_API_URL` and `ADMIN_API_KEY` are read on every request, so edits to `.env.local` apply without a restart. Never prefix them with `NEXT_PUBLIC_`. `NEXT_PUBLIC_FACEBOOK_PAGE_USERNAME` is not a secret and is built into the page, so restart `pnpm dev` (or redeploy) after changing it. On Vercel, set them in the project settings (see "Deploying to Vercel").
+
+## Sharing products on Facebook
+
+Every product card has a **Share to Facebook** button. It opens a panel with the product's Messenger link (`https://m.me/<username>?ref=ORDER_PRODUCT:P001`), a ready-to-paste Bangla post text, copy buttons, **Share on Facebook** (Facebook's share dialog) and **Test link**. A customer who taps the link lands in Messenger with that product chosen, and the bot asks for the quantity (see "Product links for Facebook posts" in `../api/README.md`). Without `NEXT_PUBLIC_FACEBOOK_PAGE_USERNAME` the panel shows how to set it.
 
 ## Express endpoints used
 
@@ -81,8 +86,9 @@ Create a Vercel project from this repository with **Root Directory** set to `web
 
 - `BACKEND_API_URL`: the backend project's production URL, for example `https://orderpilot-api.vercel.app`. Use the production domain: preview URLs are behind Vercel's login.
 - `ADMIN_API_KEY`: the same value as in the backend project.
+- `NEXT_PUBLIC_FACEBOOK_PAGE_USERNAME`: your Facebook Page's username, for the product share links.
 
-Redeploy after changing either value.
+Redeploy after changing any of these values.
 
 ## Limitations
 
