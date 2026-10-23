@@ -7,15 +7,26 @@ import { CopyTextButton } from '@/components/ui/CopyTextButton';
 import { Drawer } from '@/components/ui/Drawer';
 import { ProductImage } from '@/components/ui/ProductImage';
 import { formatMoney } from '@/lib/format';
-import { facebookShareUrl, getFacebookPageUsername, messengerProductLink, productPostText } from '@/lib/messenger';
+import {
+  facebookDebuggerUrl,
+  facebookShareUrl,
+  getFacebookPageUsername,
+  productPostText,
+  productShareLink,
+} from '@/lib/messenger';
 import type { Product } from '@/lib/types';
 
-// Builds the m.me link of one product for a Facebook post. A customer who taps it lands in
-// Messenger with the product already chosen, and the bot asks for the quantity straight away.
-// Render with key={product.id} so the copy buttons reset per product.
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+// Builds the share link of one product for a Facebook post: this dashboard's /p/P001. Facebook's
+// preview of it shows the product photo, and a customer who taps it lands in Messenger with the
+// product already chosen. Render with key={product.id} so the copy buttons reset per product.
 export function ShareProductDrawer({ product, onClose }: { product: Product | null; onClose: () => void }) {
   const pageUsername = getFacebookPageUsername();
-  const link = product && pageUsername ? messengerProductLink(pageUsername, product.id) : null;
+  // The drawer only opens after a click, so this always runs in the browser.
+  const location = typeof window === 'undefined' ? null : window.location;
+  const link = product && pageUsername && location ? productShareLink(location.origin, product.id) : null;
+  const isLocal = location !== null && LOCAL_HOSTS.has(location.hostname);
 
   return (
     <Drawer
@@ -33,7 +44,7 @@ export function ShareProductDrawer({ product, onClose }: { product: Product | nu
               Customers who open the link are told the product was not found, until it is available again.
             </Alert>
           )}
-          {link ? <ShareDetails product={product} link={link} /> : <PageNotSet />}
+          {link ? <ShareDetails product={product} link={link} isLocal={isLocal} /> : <PageNotSet />}
         </>
       )}
     </Drawer>
@@ -55,22 +66,30 @@ function ProductSummary({ product }: { product: Product }) {
   );
 }
 
-function ShareDetails({ product, link }: { product: Product; link: string }) {
+function ShareDetails({ product, link, isLocal }: { product: Product; link: string; isLocal: boolean }) {
   const postText = productPostText(product, link);
   const fieldClass = 'w-full rounded-xl border border-line bg-canvas px-3 py-2.5 text-ink outline-none focus:border-brand-200';
+  const textLink = 'font-semibold text-brand-700 underline underline-offset-2 hover:text-brand-800';
 
   return (
     <>
-      <Section title="Messenger link" hint="Opens Messenger with this product selected.">
+      {isLocal && (
+        <Alert tone="info" title="The photo preview needs the deployed dashboard">
+          Facebook cannot open links to this computer, so it cannot show the product photo for this link. Test
+          link still works here. Share from the dashboard on Vercel.
+        </Alert>
+      )}
+
+      <Section title="Share link" hint="Facebook shows the product photo. A tap opens Messenger with this product selected.">
         <input
           readOnly
           value={link}
-          aria-label="Messenger link"
+          aria-label="Share link"
           onFocus={(event) => event.currentTarget.select()}
           className={`${fieldClass} font-mono text-xs`}
         />
         <div className="mt-3 flex">
-          <CopyTextButton value={link} label="Copy link" name="Messenger link" />
+          <CopyTextButton value={link} label="Copy link" name="Share link" />
         </div>
       </Section>
 
@@ -90,20 +109,16 @@ function ShareDetails({ product, link }: { product: Product; link: string }) {
       <Section title="How to post">
         <ol className="list-decimal space-y-1.5 pl-5 text-sm leading-6 text-ink-soft">
           <li>Copy the post text.</li>
-          <li>
-            On your Facebook Page, create a post, paste the text and add the{' '}
-            <a
-              href={product.imageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-semibold text-brand-700 underline underline-offset-2 hover:text-brand-800"
-            >
-              product photo
-            </a>
-            .
-          </li>
+          <li>On your Facebook Page, create a post and paste it. The link preview shows the product photo.</li>
           <li>
             Or use <strong className="font-semibold text-ink">Share on Facebook</strong> to share the link on its own.
+          </li>
+          <li>
+            Still the old picture? Facebook caches previews: refresh it in the{' '}
+            <a href={facebookDebuggerUrl(link)} target="_blank" rel="noopener noreferrer" className={textLink}>
+              Sharing Debugger
+            </a>
+            .
           </li>
         </ol>
       </Section>

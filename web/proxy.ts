@@ -9,13 +9,12 @@
 // and change orders, locally or on Vercel. Use test data only.
 
 import { NextResponse, type NextRequest } from 'next/server';
+import { getBackendUrl } from '@/lib/backend';
 import type { ApiErrorCode } from '@/services/http';
 
 export const config = {
   matcher: ['/api/:path*', '/health'],
 };
-
-const DEFAULT_BACKEND_URL = 'http://127.0.0.1:3000';
 
 // The value shipped in .env.example. Treated as "not set" so a fresh checkout
 // shows a setup hint instead of a confusing 401 from Express.
@@ -28,22 +27,7 @@ const isProductsPath = (pathname: string) => pathname === '/api/products' || pat
 const isAllowedPath = (pathname: string) => pathname === '/health' || isOrdersPath(pathname) || isProductsPath(pathname);
 
 // Env is read per request so an edited .env.local applies without a restart. On Vercel
-// both values come from the project's Environment Variables.
-
-// Base URL without a trailing slash, or null when it is not a plain http(s) URL.
-// Credentials, query strings and fragments are rejected because paths are appended to it.
-function getBackendUrl(): string | null {
-  const raw = (process.env.BACKEND_API_URL ?? '').trim() || DEFAULT_BACKEND_URL;
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-  if (url.username || url.password || url.search || url.hash) return null;
-  return `${url.origin}${url.pathname}`.replace(/\/+$/, '');
-}
+// both values come from the project's Environment Variables. getBackendUrl() is in lib/backend.ts.
 
 // The Express admin key, or null when it is missing, blank or still the placeholder.
 function getAdminKey(): string | null {

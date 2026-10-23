@@ -1,6 +1,7 @@
-// Product links for Facebook posts. Opening https://m.me/<page>?ref=ORDER_PRODUCT:P001 starts the
-// order for that product in Messenger (the bot reads the ref in api/src/services/payloads.js).
-// Pure functions, safe on server and client.
+// Product links for Facebook posts. A post links to this dashboard's /p/P001 (app/p/[id]/route.ts):
+// Facebook's preview there shows the product photo, and a customer who taps it is sent on to
+// https://m.me/<page>?ref=ORDER_PRODUCT:P001, which starts the order for that product in Messenger
+// (the bot reads the ref in api/src/services/payloads.js). Pure functions, safe on server and client.
 
 import { formatMoney } from './format';
 import type { Product } from './types';
@@ -18,9 +19,17 @@ export function getFacebookPageUsername(): string | null {
 export const messengerProductLink = (pageUsername: string, productId: string) =>
   `https://m.me/${pageUsername}?ref=ORDER_PRODUCT:${encodeURIComponent(productId)}`;
 
+// The link to share: the product preview page on the dashboard's own address.
+export const productShareLink = (origin: string, productId: string) =>
+  `${origin}/p/${encodeURIComponent(productId)}`;
+
 // Facebook's share dialog. It takes a URL only: the post text has to be pasted by hand.
 export const facebookShareUrl = (link: string) =>
   `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`;
+
+// Facebook's Sharing Debugger: makes Facebook read a link's preview again (it caches previews).
+export const facebookDebuggerUrl = (link: string) =>
+  `https://developers.facebook.com/tools/debug/?q=${encodeURIComponent(link)}`;
 
 // Ready-to-paste post text, in Bangla like the bot's replies.
 export function productPostText(product: Product, link: string): string {
