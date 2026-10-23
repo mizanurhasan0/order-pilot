@@ -466,7 +466,7 @@ const card = (n) => ({
   title: `P00${n} · Product ${n} – ৳${1000 + n * 250}`,
   subtitle: `Description ${n}`,
   image_url: `https://cdn.example.com/p${n}.jpg`,
-  buttons: [{ type: 'postback', title: 'Order Now', payload: `ORDER_PRODUCT:P00${n}` }],
+  buttons: [{ type: 'postback', title: '🛒 অর্ডার করুন', payload: `ORDER_PRODUCT:P00${n}` }],
 });
 const carouselBody = (elements) => ({
   recipient: { id: PSID },
@@ -627,7 +627,7 @@ describe('sendGenericTemplate', () => {
       title: `${product.id} · ${product.name} – ৳${product.price}`,
       subtitle: product.description,
       imageUrl: product.imageUrl,
-      buttons: [{ title: 'Order Now', payload: `ORDER_PRODUCT:${product.id}` }],
+      buttons: [{ title: '🛒 অর্ডার করুন', payload: `ORDER_PRODUCT:${product.id}` }],
     }));
 
     const result = await sendGenericTemplate(PSID, elements);
@@ -873,18 +873,18 @@ describe('sendProductCatalog: requests', () => {
       nav,
       textBody(NAV_TEXT, [
         ...productQuickReplies(),
-        quickReplyOf('◀ Previous', 'CATALOG_PAGE:1'),
-        quickReplyOf('Next ▶', 'CATALOG_PAGE:3'),
-        quickReplyOf('Menu', 'MENU'),
+        quickReplyOf('◀ আগের', 'CATALOG_PAGE:1'),
+        quickReplyOf('পরের ▶', 'CATALOG_PAGE:3'),
+        quickReplyOf('🏠 মেনু', 'MENU'),
       ]),
     );
   });
 
   const pages = [
-    ['the first page', 1, 3, [['Next ▶', 'CATALOG_PAGE:2'], ['Menu', 'MENU']]],
-    ['a middle page', 2, 3, [['◀ Previous', 'CATALOG_PAGE:1'], ['Next ▶', 'CATALOG_PAGE:3'], ['Menu', 'MENU']]],
-    ['the last page', 3, 3, [['◀ Previous', 'CATALOG_PAGE:2'], ['Menu', 'MENU']]],
-    ['a single page', 1, 1, [['Menu', 'MENU']]],
+    ['the first page', 1, 3, [['পরের ▶', 'CATALOG_PAGE:2'], ['🏠 মেনু', 'MENU']]],
+    ['a middle page', 2, 3, [['◀ আগের', 'CATALOG_PAGE:1'], ['পরের ▶', 'CATALOG_PAGE:3'], ['🏠 মেনু', 'MENU']]],
+    ['the last page', 3, 3, [['◀ আগের', 'CATALOG_PAGE:2'], ['🏠 মেনু', 'MENU']]],
+    ['a single page', 1, 1, [['🏠 মেনু', 'MENU']]],
   ];
 
   for (const [name, page, totalPages, expected] of pages) {
@@ -1075,9 +1075,9 @@ describe('sendProductCatalog: text fallback', () => {
         fallback,
         textBody(FALLBACK_TEXT, [
           ...productQuickReplies(),
-          quickReplyOf('◀ Previous', 'CATALOG_PAGE:1'),
-          quickReplyOf('Next ▶', 'CATALOG_PAGE:3'),
-          quickReplyOf('Menu', 'MENU'),
+          quickReplyOf('◀ আগের', 'CATALOG_PAGE:1'),
+          quickReplyOf('পরের ▶', 'CATALOG_PAGE:3'),
+          quickReplyOf('🏠 মেনু', 'MENU'),
         ]),
       );
     });
@@ -1112,7 +1112,7 @@ describe('sendOrderConfirmation', () => {
   const DRAFT_ID = 'abc123def4567890';
   const SUMMARY = 'Your order:\nProduct: Silk Saree\nQuantity: 2\nConfirm?';
   const confirmationBody = (text) =>
-    textBody(text, [quickReplyOf('✅ Confirm', `CONFIRM_ORDER:${DRAFT_ID}`), quickReplyOf('❌ Cancel', 'CANCEL_ORDER')]);
+    textBody(text, [quickReplyOf('✅ নিশ্চিত করুন', `CONFIRM_ORDER:${DRAFT_ID}`), quickReplyOf('❌ বাতিল', 'CANCEL_ORDER')]);
 
   it('sends the summary as text with Confirm and Cancel quick replies', async () => {
     const fetchMock = mockFetchSequence(ok('m_order'));

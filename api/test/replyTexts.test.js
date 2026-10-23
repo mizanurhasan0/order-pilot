@@ -5,6 +5,10 @@ import * as texts from '../src/services/replyTexts.js';
 // The expected strings below are written out by hand on purpose: they are the wording the
 // shop owner approved, so a change to replyTexts.js must show up as a failing test.
 
+const MENU_OPTIONS = `1. 🛍️ পণ্য দেখুন
+2. 📦 আমার অর্ডারের তথ্য
+3. 👨‍💼 সহায়তা`;
+
 test('WELCOME is the approved menu text', () => {
   assert.equal(
     texts.WELCOME,
@@ -14,26 +18,22 @@ Tangail Botiques-এ আপনাকে স্বাগতম।
 
 আমাদের পণ্য দেখতে অথবা অর্ডার করতে নিচের অপশন নির্বাচন করুন।
 
-1. 🛍️ View Products
-2. 📦 My Order Information
-3. 👨‍💼 Contact Support`,
+${MENU_OPTIONS}`,
   );
 });
 
 test('SUPPORT, FALLBACK and ATTACHMENT are the approved texts', () => {
   assert.equal(
     texts.SUPPORT,
-    `👨‍💼 Contact Support
+    `👨‍💼 সহায়তা
 
-আমাদের টিম আপনার মেসেজের উত্তর দেবে।`,
+আমাদের টিম শিগগিরই আপনার মেসেজের উত্তর দেবে।`,
   );
   assert.equal(
     texts.FALLBACK,
     `দুঃখিত, আপনার মেসেজটি বুঝতে পারিনি।
 
-1. 🛍️ View Products
-2. 📦 My Order Information
-3. 👨‍💼 Contact Support
+${MENU_OPTIONS}
 
 নিচের বাটনে চাপুন, অথবা 1, 2 বা 3 লিখুন।`,
   );
@@ -51,25 +51,53 @@ test('orderStart asks for the quantity', () => {
     `আপনি নির্বাচন করেছেন:
 
 Premium Cotton Saree
-Price: ৳1250
+দাম: ৳1250
 
 কয়টি পিস অর্ডার করবেন?
 নিচের বাটনে চাপুন, অথবা 1 থেকে 100 লিখুন।
 
-বাতিল করতে cancel লিখুন।`,
+বাতিল করতে ❌ বাতিল চাপুন, অথবা "বাতিল" লিখুন।`,
   );
 });
 
 test('prompts for the quantity, phone and address steps', () => {
   assert.equal(texts.QUANTITY_INVALID, 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 থেকে 100-এর মধ্যে একটি সংখ্যা লিখুন।');
   assert.equal(
-    texts.ASK_PHONE,
+    texts.askPhone(null),
     '📱 আপনার মোবাইল নম্বর দিন।\nনিচে আপনার নম্বরের বাটন থাকলে চাপুন, অথবা লিখুন। যেমন: 017XXXXXXXX',
   );
   assert.ok(texts.PHONE_INVALID.includes('017XXXXXXXX, +88017XXXXXXXX, 88017XXXXXXXX'));
-  assert.equal(texts.ASK_ADDRESS, '🏠 আপনার সম্পূর্ণ ডেলিভারি ঠিকানা লিখুন।\nযেমন: বাসা 12, রোড 3, টাঙ্গাইল সদর, টাঙ্গাইল');
+  assert.equal(texts.askAddress(null), '🏠 আপনার সম্পূর্ণ ডেলিভারি ঠিকানা লিখুন।\nযেমন: বাসা 12, রোড 3, টাঙ্গাইল সদর, টাঙ্গাইল');
   assert.ok(texts.ADDRESS_INVALID.includes('10 থেকে 200'));
-  assert.equal(texts.CONFIRM_INVALID, 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (Confirm) / 2 (Cancel) লিখুন।');
+  assert.equal(texts.CONFIRM_INVALID, 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (নিশ্চিত) / 2 (বাতিল) লিখুন।');
+});
+
+test('the phone and address questions mention the previous number and address', () => {
+  assert.equal(
+    texts.askPhone('01712345678'),
+    `📱 আপনার মোবাইল নম্বর দিন।
+আগের নম্বরটি (01712345678) দিতে নিচের 📱 বাটনে চাপুন।
+নিচে আপনার নম্বরের বাটন থাকলে চাপুন, অথবা লিখুন। যেমন: 017XXXXXXXX`,
+  );
+  assert.equal(
+    texts.askAddress('House 12, Road 3, Tangail Sadar'),
+    `🏠 আপনার সম্পূর্ণ ডেলিভারি ঠিকানা লিখুন।
+যেমন: বাসা 12, রোড 3, টাঙ্গাইল সদর, টাঙ্গাইল
+
+আগের ঠিকানা: House 12, Road 3, Tangail Sadar
+একই ঠিকানায় নিতে নিচের 🏠 আগের ঠিকানা বাটনে চাপুন।`,
+  );
+  assert.equal(texts.savedPhoneButton('01712345678'), '📱 01712345678');
+  assert.ok(Array.from(texts.savedPhoneButton('01712345678')).length <= 20);
+});
+
+test('a resumed question starts with the order-in-progress note', () => {
+  assert.equal(
+    texts.ORDER_IN_PROGRESS,
+    '⏳ আপনার অর্ডারটি এখনো চলছে। নিচের প্রশ্নের উত্তর দিন, অথবা নতুন করে শুরু করতে ❌ বাতিল চাপুন।',
+  );
+  assert.equal(texts.ATTACHMENT_IN_ORDER, `দুঃখিত, ছবি বা স্টিকার বুঝতে পারি না।\n${texts.ORDER_IN_PROGRESS}`);
+  assert.equal(texts.resumed('note', 'question'), 'note\n\nquestion');
 });
 
 test('orderSummary is the approved summary text', () => {
@@ -85,19 +113,19 @@ test('orderSummary is the approved summary text', () => {
     summary,
     `🛍️ আপনার অর্ডার:
 
-Product: Premium Cotton Saree
-Quantity: 2
-Unit Price: ৳1250
-Subtotal: ৳2500
-Phone: 01712345678
-Address: House 12, Road 3, Tangail
+পণ্য: Premium Cotton Saree
+পরিমাণ: 2
+একক দাম: ৳1250
+মোট দাম: ৳2500
+মোবাইল: 01712345678
+ঠিকানা: House 12, Road 3, Tangail
 
-Delivery charge: Not calculated
+ডেলিভারি চার্জ: এখনো যোগ করা হয়নি
 
 অর্ডারটি নিশ্চিত করবেন?
 
-1. Confirm
-2. Cancel`,
+1. ✅ নিশ্চিত করুন
+2. ❌ বাতিল করুন`,
   );
 });
 
@@ -106,20 +134,20 @@ test('orderConfirmed is the approved confirmation text', () => {
     texts.orderConfirmed({ id: 'ORD-1001', subtotal: 2500 }),
     `✅ আপনার অর্ডার নিশ্চিত হয়েছে!
 
-Order ID: ORD-1001
-Total: ৳2500
-Delivery charge: Not calculated
+অর্ডার আইডি: ORD-1001
+মোট: ৳2500
+ডেলিভারি চার্জ: এখনো যোগ করা হয়নি
 
 আমাদের টিম শিগগিরই আপনার সাথে যোগাযোগ করবে।
 
-মেনু দেখতে menu লিখুন।`,
+মেনু দেখতে "মেনু" লিখুন।`,
   );
 });
 
 test('orderDuplicate shows the order id when it is known', () => {
   assert.equal(
     texts.orderDuplicate({ id: 'ORD-1001' }),
-    'এই অর্ডারটি ইতিমধ্যে নিশ্চিত করা হয়েছে।\nOrder ID: ORD-1001',
+    'এই অর্ডারটি ইতিমধ্যে নিশ্চিত করা হয়েছে।\nঅর্ডার আইডি: ORD-1001',
   );
   assert.equal(texts.orderDuplicate(), 'এই অর্ডারটি ইতিমধ্যে নিশ্চিত করা হয়েছে।');
 });
@@ -140,13 +168,18 @@ test('orderInfo lists orders without phone or address, or says there are none', 
     phone: '01712345678',
     address: 'House 12, Road 3, Tangail',
   };
-  const text = texts.orderInfo([order, { ...order, id: 'ORD-1001', status: 'confirmed' }]);
+  const text = texts.orderInfo([
+    order,
+    { ...order, id: 'ORD-1001', status: 'confirmed' },
+    { ...order, id: 'ORD-1000', status: 'cancelled' },
+  ]);
   assert.equal(
     text,
     `📦 আপনার সাম্প্রতিক অর্ডার:
 
-ORD-1002 – Classic Cotton Panjabi × 3 – ৳4950 – pending
-ORD-1001 – Classic Cotton Panjabi × 3 – ৳4950 – confirmed`,
+ORD-1002 – Classic Cotton Panjabi × 3 – ৳4950 – অপেক্ষমাণ
+ORD-1001 – Classic Cotton Panjabi × 3 – ৳4950 – নিশ্চিত
+ORD-1000 – Classic Cotton Panjabi × 3 – ৳4950 – বাতিল`,
   );
   assert.ok(!text.includes('01712345678'));
   assert.ok(!text.includes('Tangail'));
@@ -163,7 +196,7 @@ test('catalogNav and catalogFallback follow the approved wording', () => {
     texts.catalogNav({ page: 2, totalPages: 10 }),
     `🛍️ পণ্য তালিকা – পৃষ্ঠা 2/10
 🛒 অর্ডার করতে নিচে পণ্যের কোডে চাপ দিন (কোডটি ছবির নিচে নামের শুরুতে আছে)।
-next / previous / menu / cancel লিখেও যেতে পারেন।`,
+পৃষ্ঠা বদলাতে "পরের" বা "আগের" লিখুন, মেনুর জন্য "মেনু"।`,
   );
 
   const products = [
@@ -178,17 +211,17 @@ P006 – Formal Full Sleeve Shirt – ৳1150
 P007 – Soft Georgette Hijab – ৳420
 
 অর্ডার করতে পণ্যের কোড লিখুন (যেমন: P001)।
-next / previous / menu / cancel লিখেও যেতে পারেন।`,
+পৃষ্ঠা বদলাতে "পরের" বা "আগের" লিখুন, মেনুর জন্য "মেনু"।`,
   );
 });
 
-test('every text mentions how to continue (a number, menu, next or previous)', () => {
+test('every text mentions how to continue (a number, মেনু, পরের or আগের)', () => {
   const edge = [texts.CATALOG_EDGE_FIRST, texts.CATALOG_EDGE_LAST, texts.PRODUCT_NOT_FOUND, texts.CONFIRM_STALE];
   for (const text of edge) {
-    assert.ok(/menu|next|previous|\b1\b/.test(text), text);
+    assert.ok(/মেনু|পরের|আগের|\b1\b/.test(text), text);
   }
-  assert.ok(texts.CATALOG_EDGE_FIRST.includes('next'));
-  assert.ok(texts.CATALOG_EDGE_LAST.includes('previous'));
+  assert.ok(texts.CATALOG_EDGE_FIRST.includes('"পরের"'));
+  assert.ok(texts.CATALOG_EDGE_LAST.includes('"আগের"'));
 });
 
 test('savedDetails offers the last phone and address with the two choices', () => {
@@ -196,16 +229,34 @@ test('savedDetails offers the last phone and address with the two choices', () =
     texts.savedDetails({ phone: '01712345678', address: 'House 12, Road 3, Tangail Sadar' }),
     `আগের অর্ডারের তথ্য:
 
-Phone: 01712345678
-Address: House 12, Road 3, Tangail Sadar
+মোবাইল: 01712345678
+ঠিকানা: House 12, Road 3, Tangail Sadar
 
 এই নম্বর আর ঠিকানায় ডেলিভারি দেব?
 
 1. ✅ হ্যাঁ, এই তথ্য
-2. ✏️ নতুন তথ্য দেব`,
+2. ✏️ নতুন তথ্য দেব
+
+শুধু নম্বর বা শুধু ঠিকানা বদলাতে চাইলেও 2 বেছে নিন, পরের ধাপে আগেরটি রাখার বাটন পাবেন।`,
   );
   assert.equal(texts.SAVED_DETAILS_INVALID, 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (এই তথ্য) / 2 (নতুন তথ্য) লিখুন।');
   assert.equal(texts.BUTTON_STALE, 'এই বাটনটি আর কাজ করছে না।\n\nনিচের মেনু থেকে আবার শুরু করুন।');
+});
+
+test('customer texts carry no leftover English labels', () => {
+  const sample = [
+    texts.WELCOME,
+    texts.SUPPORT,
+    texts.orderStart({ name: 'X', price: 1 }),
+    texts.savedDetails({ phone: '01712345678', address: 'Somewhere 12345' }),
+    texts.orderSummary({ name: 'X', quantity: 1, unitPrice: 1, subtotal: 1, phone: 'p', address: 'a' }),
+    texts.orderConfirmed({ id: 'ORD-1', subtotal: 1 }),
+    texts.CONFIRM_INVALID,
+    ...Object.values(texts.BUTTONS),
+  ].join('\n');
+  for (const word of ['Price', 'Phone', 'Address', 'Quantity', 'Subtotal', 'Confirm', 'Cancel', 'Order ID', 'Menu', 'Support']) {
+    assert.ok(!sample.includes(word), word);
+  }
 });
 
 test('every quick-reply label fits Messenger’s 20 characters, so none is cut', () => {

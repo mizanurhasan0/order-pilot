@@ -40,9 +40,9 @@ Tangail Botiques-এ আপনাকে স্বাগতম।
 
 আমাদের পণ্য দেখতে অথবা অর্ডার করতে নিচের অপশন নির্বাচন করুন।
 
-1. 🛍️ View Products
-2. 📦 My Order Information
-3. 👨‍💼 Contact Support`;
+1. 🛍️ পণ্য দেখুন
+2. 📦 আমার অর্ডারের তথ্য
+3. 👨‍💼 সহায়তা`;
 
 const realFetch = globalThis.fetch;
 const events = new EventEmitter();

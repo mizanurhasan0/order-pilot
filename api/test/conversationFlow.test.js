@@ -51,9 +51,9 @@ Tangail Botiques-এ আপনাকে স্বাগতম।
 
 আমাদের পণ্য দেখতে অথবা অর্ডার করতে নিচের অপশন নির্বাচন করুন।
 
-1. 🛍️ View Products
-2. 📦 My Order Information
-3. 👨‍💼 Contact Support`;
+1. 🛍️ পণ্য দেখুন
+2. 📦 আমার অর্ডারের তথ্য
+3. 👨‍💼 সহায়তা`;
 
 const PHONE_INPUT = '+88 017-1234-5678';
 const PHONE = '01712345678'; // what the store must keep
@@ -406,7 +406,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
         assert.equal(element.buttons.length, 1);
         assert.deepEqual(element.buttons[0], {
           type: 'postback',
-          title: 'Order Now',
+          title: '🛒 অর্ডার করুন',
           payload: `ORDER_PRODUCT:${product.id}`,
         });
       });
@@ -489,8 +489,8 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       const customer = newCustomer();
       await customer.tap(orderProductPayload(FIRST.id));
 
-      assert.deepEqual(textsOf(await customer.say('2')), [texts.ASK_PHONE]);
-      assert.deepEqual(textsOf(await customer.say(PHONE_INPUT)), [texts.ASK_ADDRESS]);
+      assert.deepEqual(textsOf(await customer.say('2')), [texts.askPhone(null)]);
+      assert.deepEqual(textsOf(await customer.say(PHONE_INPUT)), [texts.askAddress(null)]);
 
       const [summary] = await customer.say(ADDRESS);
       assert.equal(summary.message.attachment, undefined);
@@ -505,17 +505,17 @@ describe('Messenger order conversation (webhook + orders API)', () => {
           address: ADDRESS,
         }),
       );
-      for (const part of [FIRST.name, 'Quantity: 2', `৳${FIRST.price * 2}`, PHONE, ADDRESS, 'Delivery charge: Not calculated']) {
+      for (const part of [FIRST.name, 'পরিমাণ: 2', `৳${FIRST.price * 2}`, PHONE, ADDRESS, 'ডেলিভারি চার্জ: এখনো যোগ করা হয়নি']) {
         assert.ok(summary.message.text.includes(part), `the summary shows ${part}`);
       }
 
       assert.equal(summary.message.quick_replies.length, 2);
       const [confirm, cancel] = summary.message.quick_replies;
       assert.equal(confirm.content_type, 'text');
-      assert.match(confirm.title, /Confirm/);
+      assert.equal(confirm.title, '✅ নিশ্চিত করুন');
       assert.match(confirm.payload, /^CONFIRM_ORDER:[0-9a-f]{16}$/);
       assert.equal(cancel.content_type, 'text');
-      assert.match(cancel.title, /Cancel/);
+      assert.equal(cancel.title, '❌ বাতিল');
       assert.equal(cancel.payload, 'CANCEL_ORDER');
     });
 
@@ -544,19 +544,19 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       for (const quantity of ['0', '101', 'abc', '1.5', '-3', PHONE, 'two']) {
         assert.deepEqual(textsOf(await customer.say(quantity)), [texts.QUANTITY_INVALID], `quantity ${quantity}`);
       }
-      assert.deepEqual(textsOf(await customer.say('100')), [texts.ASK_PHONE]);
+      assert.deepEqual(textsOf(await customer.say('100')), [texts.askPhone(null)]);
 
       for (const phone of ['12345', '01212345678', '0171234567', '017123456789', '+8801712', 'call me later']) {
         assert.deepEqual(textsOf(await customer.say(phone)), [texts.PHONE_INVALID], `phone ${phone}`);
       }
-      assert.deepEqual(textsOf(await customer.say('88017-1234-5678')), [texts.ASK_ADDRESS]);
+      assert.deepEqual(textsOf(await customer.say('88017-1234-5678')), [texts.askAddress(null)]);
 
       for (const address of ['Dhaka', 'x'.repeat(201)]) {
         assert.deepEqual(textsOf(await customer.say(address)), [texts.ADDRESS_INVALID]);
       }
       const [summary] = await customer.say(ADDRESS);
       assert.equal(quickReplyPayloads(summary)[1], 'CANCEL_ORDER');
-      assert.ok(summary.message.text.includes('Quantity: 100'));
+      assert.ok(summary.message.text.includes('পরিমাণ: 100'));
       assert.deepEqual(await ordersOf(customer.psid), []);
     });
 
@@ -583,17 +583,17 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       const [askQuantity] = await customer.quickReply(orderProductPayload(FIRST.id), `🛒 ${FIRST.id}`);
       assert.equal(askQuantity.message.text, texts.orderStart(FIRST));
       const [askPhone] = await customer.quickReply(quantityPayload(2), '2');
-      assert.equal(askPhone.message.text, texts.ASK_PHONE);
+      assert.equal(askPhone.message.text, texts.askPhone(null));
       assert.deepEqual(askPhone.message.quick_replies[0], { content_type: 'user_phone_number' });
 
       // Messenger's phone quick reply carries the number from the profile as text and payload.
       const [askAddress] = await customer.quickReply('+8801712345678', '+8801712345678');
-      assert.equal(askAddress.message.text, texts.ASK_ADDRESS);
+      assert.equal(askAddress.message.text, texts.askAddress(null));
       const [summary] = await customer.say(ADDRESS);
       assert.ok(summary.message.text.includes(PHONE));
 
       const [confirmed] = await customer.quickReply(quickReplyPayloads(summary)[0], '✅ Confirm');
-      assert.ok(confirmed.message.text.includes('Order ID: ORD-'));
+      assert.ok(confirmed.message.text.includes('অর্ডার আইডি: ORD-'));
       assert.deepEqual(quickReplyPayloads(confirmed), quick.AFTER_ORDER.map((item) => item.payload));
       const [order] = await ordersOf(customer.psid);
       assert.equal(order.phone, PHONE);
@@ -611,7 +611,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       assert.deepEqual(quickReplyPayloads(offer), [USE_SAVED_DETAILS_PAYLOAD, NEW_DETAILS_PAYLOAD, 'CANCEL_ORDER']);
 
       const [summary] = await customer.quickReply(USE_SAVED_DETAILS_PAYLOAD, '✅ Yes, use these');
-      assert.ok(summary.message.text.includes(SECOND.name) && summary.message.text.includes('Quantity: 3'));
+      assert.ok(summary.message.text.includes(SECOND.name) && summary.message.text.includes('পরিমাণ: 3'));
       await customer.quickReply(quickReplyPayloads(summary)[0], '✅ Confirm');
 
       const [latest, ...older] = await ordersOf(customer.psid);
@@ -714,7 +714,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
         info.message.text,
         texts.orderInfo([{ ...order, status: 'confirmed' }]),
       );
-      assert.ok(info.message.text.includes('confirmed'));
+      assert.ok(info.message.text.includes('নিশ্চিত'));
       assert.ok(!info.message.text.includes(PHONE));
       assert.ok(!info.message.text.includes('Hidden Lane'));
     });
@@ -785,8 +785,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       ['typing cancel', (customer) => customer.say('cancel'), texts.ORDER_CANCELLED],
       ['typing 2', (customer) => customer.say('2'), texts.ORDER_CANCELLED],
       ['the Cancel button', (customer) => customer.tap('CANCEL_ORDER'), texts.ORDER_CANCELLED],
-      ['typing menu', (customer) => customer.say('menu'), WELCOME_TEXT],
-      ['the Menu quick reply', (customer) => customer.quickReply(MENU_PAYLOAD, 'Menu'), WELCOME_TEXT],
+      ['typing বাতিল', (customer) => customer.say('বাতিল'), texts.ORDER_CANCELLED],
     ];
 
     for (const [name, exit, expectedText] of exits) {
@@ -804,6 +803,24 @@ describe('Messenger order conversation (webhook + orders API)', () => {
         // ...and the old Confirm button no longer does anything.
         assert.deepEqual(textsOf(await customer.tap(confirmOrderPayload(draftId))), [texts.CONFIRM_STALE]);
         assert.equal(orderStore.size(), 0);
+      });
+    }
+
+    for (const [name, leave] of [
+      ['typing menu', (customer) => customer.say('menu')],
+      ['the Menu quick reply', (customer) => customer.quickReply(MENU_PAYLOAD, '🏠 মেনু')],
+      ['typing hi', (customer) => customer.say('hi')],
+    ]) {
+      it(`${name} keeps the order and shows its summary again with a working Confirm button`, async () => {
+        const customer = newCustomer();
+        const { summary, draftId } = await reachSummary(customer);
+
+        const [again] = await leave(customer);
+        assert.equal(again.message.text, texts.resumed(texts.ORDER_IN_PROGRESS, summary.message.text));
+        assert.deepEqual(quickReplyPayloads(again), [`CONFIRM_ORDER:${draftId}`, 'CANCEL_ORDER']);
+
+        await customer.quickReply(quickReplyPayloads(again)[0], '✅ নিশ্চিত করুন');
+        assert.equal((await ordersOf(customer.psid)).length, 1);
       });
     }
 
@@ -828,8 +845,8 @@ describe('Messenger order conversation (webhook + orders API)', () => {
 
       const aliceText = aliceSummary.message.text;
       const bobText = bobSummary.message.text;
-      assert.ok(aliceText.includes(FIRST.name) && aliceText.includes('Quantity: 2') && aliceText.includes(PHONE));
-      assert.ok(bobText.includes(SECOND.name) && bobText.includes('Quantity: 5') && bobText.includes(bobPhone));
+      assert.ok(aliceText.includes(FIRST.name) && aliceText.includes('পরিমাণ: 2') && aliceText.includes(PHONE));
+      assert.ok(bobText.includes(SECOND.name) && bobText.includes('পরিমাণ: 5') && bobText.includes(bobPhone));
       assert.ok(!aliceText.includes(bobPhone) && !aliceText.includes('Mirzapur'));
       assert.ok(!bobText.includes(PHONE) && !bobText.includes('Hidden Lane'));
 
@@ -951,7 +968,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
 
         held[0]();
         await waitFor(() => settledReplies(slow.psid) === 3, 'the three answers');
-        assert.deepEqual(textsOf(bodiesTo(slow.psid)), [texts.orderStart(FIRST), texts.ASK_PHONE, texts.ASK_ADDRESS]);
+        assert.deepEqual(textsOf(bodiesTo(slow.psid)), [texts.orderStart(FIRST), texts.askPhone(null), texts.askAddress(null)]);
       } finally {
         held.forEach((release) => release());
       }
@@ -1025,8 +1042,8 @@ describe('Messenger order conversation (webhook + orders API)', () => {
 
       // The customer picks a product by its code from the text list and finishes an order.
       assert.deepEqual(textsOf(await customer.say(FIRST.id.toLowerCase())), [texts.orderStart(FIRST)]);
-      assert.deepEqual(textsOf(await customer.say('1')), [texts.ASK_PHONE]);
-      assert.deepEqual(textsOf(await customer.say(PHONE_INPUT)), [texts.ASK_ADDRESS]);
+      assert.deepEqual(textsOf(await customer.say('1')), [texts.askPhone(null)]);
+      assert.deepEqual(textsOf(await customer.say(PHONE_INPUT)), [texts.askAddress(null)]);
     });
 
     it('Graph error 190 is logged as a failure, nothing else is sent, the webhook stays 200 and the server keeps working', async () => {
@@ -1077,7 +1094,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       assert.equal(sessionStore.size(), 0, 'the ignored "1" would have opened the catalog');
     });
 
-    it('an attachment gets the attachment text and leaves the order draft alone', async () => {
+    it('an attachment in the middle of an order repeats the question and leaves the draft alone', async () => {
       const customer = newCustomer();
       await customer.tap(orderProductPayload(FIRST.id));
       await customer.say('2');
@@ -1087,11 +1104,11 @@ describe('Messenger order conversation (webhook + orders API)', () => {
         message: { mid: `m_photo_${(counter += 1)}`, attachments: [{ type: 'image', payload: { url: 'https://cdn.example.test/p.jpg' } }] },
       };
       const [reply] = await customer.deliver([photo]);
-      assert.equal(reply.message.text, texts.ATTACHMENT);
+      assert.equal(reply.message.text, texts.resumed(texts.ATTACHMENT_IN_ORDER, texts.askPhone(null)));
       assert.ok(graphCalls.every((call) => !call.url.includes('cdn.example.test')));
 
       // still waiting for the phone number
-      assert.deepEqual(textsOf(await customer.say(PHONE_INPUT)), [texts.ASK_ADDRESS]);
+      assert.deepEqual(textsOf(await customer.say(PHONE_INPUT)), [texts.askAddress(null)]);
     });
   });
 

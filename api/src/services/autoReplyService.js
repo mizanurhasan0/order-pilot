@@ -6,8 +6,6 @@ import { maskId } from '../utils/maskId.js';
 import { conversationService } from './conversationService.js';
 import { sendOrderConfirmation, sendPhotoAndText, sendProductCatalog, sendTextMessage } from './messengerService.js';
 import { parsePayload, referralPayload } from './payloads.js';
-import * as quick from './quickReplies.js';
-import { ATTACHMENT } from './replyTexts.js';
 
 // The Messenger side of the order flow. For every webhook event it decides whether a real
 // customer did something (typed text, tapped a quick reply or a button, sent an attachment,
@@ -23,8 +21,6 @@ import { ATTACHMENT } from './replyTexts.js';
 // values (just their type), tokens and full PSIDs are never logged.
 
 export { normalizeText } from '../utils/normalizeText.js';
-
-export const ATTACHMENT_REPLY = { rule: 'attachment', text: ATTACHMENT, quickReplies: quick.MENU };
 
 const queue = createKeyedQueue();
 
@@ -42,9 +38,9 @@ const payloadInput = (kind, payload) => ({
 
 // What a message contains. One of our quick-reply payloads wins over its text; Messenger's own
 // phone-number quick reply carries the number itself as payload, so it is read as the typed
-// text it also contains. A message with only attachments (input: null) is answered with a
-// fixed text and never reaches the conversation. Only the number of attachments is kept:
-// their URLs are never read or fetched.
+// text it also contains. A message with only attachments (a photo, sticker, like, ...) reaches
+// the conversation as { type: 'attachment' }: only the number of attachments is kept, their URLs
+// are never read or fetched.
 function readMessage(message) {
   const text = typeof message.text === 'string' ? message.text : '';
   const counts = {
@@ -57,7 +53,9 @@ function readMessage(message) {
   const isOurPayload = isNonEmptyString(quickReply) && (parsePayload(quickReply) !== null || text.trim() === '');
   if (isOurPayload) return { ...payloadInput('quick_reply', quickReply), ...counts };
   if (text.trim() !== '') return { kind: 'text', input: { type: 'text', text }, payloadType: null, ...counts };
-  if (counts.attachmentCount > 0) return { kind: 'attachment', input: null, payloadType: null, ...counts };
+  if (counts.attachmentCount > 0) {
+    return { kind: 'attachment', input: { type: 'attachment' }, payloadType: null, ...counts };
+  }
   return { kind: 'none', input: null, payloadType: null, ...counts };
 }
 
@@ -216,8 +214,6 @@ const SENDERS = {
   order_confirmation: (psid, reply) => sendOrderConfirmation(psid, { text: reply.text, draftId: reply.draftId }),
 };
 
-const ATTACHMENT_REPLY_ITEM = { kind: 'text', ...ATTACHMENT_REPLY };
-
 // Sends the replies one by one, in order. After the first failure the rest are dropped: the
 // customer must not get a later message (say, the phone question) without the earlier one.
 async function sendReplies(psid, replies, step) {
@@ -233,12 +229,8 @@ async function sendReplies(psid, replies, step) {
 }
 
 // Runs in the customer's queue slot. The step is read AFTER handle(), so the log shows where
-// the conversation is now. Attachments never touch the session, not even to read it.
+// the conversation is now.
 async function answerCustomer(pageId, psid, input) {
-  if (input === null) {
-    await sendReplies(psid, [ATTACHMENT_REPLY_ITEM], null);
-    return;
-  }
   const replies = await conversationService.handle({ pageId, psid, input });
   const { step } = await sessionStore.get(conversationKey(pageId, psid));
   await sendReplies(psid, replies, step);

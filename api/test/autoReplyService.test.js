@@ -1,6 +1,6 @@
 import { describe, test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { ATTACHMENT_REPLY, normalizeText, processEntries } from '../src/services/autoReplyService.js';
+import { normalizeText, processEntries } from '../src/services/autoReplyService.js';
 import { conversationService } from '../src/services/conversationService.js';
 import { createDedupeCache } from '../src/services/dedupeCache.js';
 import { catalogPagePayload, MENU_PAYLOAD, orderProductPayload } from '../src/services/payloads.js';
@@ -18,9 +18,9 @@ Tangail Botiques-এ আপনাকে স্বাগতম।
 
 আমাদের পণ্য দেখতে অথবা অর্ডার করতে নিচের অপশন নির্বাচন করুন।
 
-1. 🛍️ View Products
-2. 📦 My Order Information
-3. 👨‍💼 Contact Support`;
+1. 🛍️ পণ্য দেখুন
+2. 📦 আমার অর্ডারের তথ্য
+3. 👨‍💼 সহায়তা`;
 
 const ATTACHMENT_TEXT = `দুঃখিত, আমি এখন শুধু টেক্সট মেসেজ বুঝতে পারি।
 
@@ -86,10 +86,9 @@ describe('normalizeText', () => {
   });
 });
 
-describe('ATTACHMENT_REPLY', () => {
-  test('is the attachment rule with its text', () => {
-    assert.deepEqual({ ...ATTACHMENT_REPLY }, { rule: 'attachment', text: texts.ATTACHMENT, quickReplies: quick.MENU });
-    assert.equal(ATTACHMENT_REPLY.text, ATTACHMENT_TEXT);
+describe('agreed texts', () => {
+  test('replyTexts keeps the agreed attachment text', () => {
+    assert.equal(texts.ATTACHMENT, ATTACHMENT_TEXT);
   });
 
   test('replyTexts keeps the agreed welcome text', () => {
@@ -373,29 +372,31 @@ describe('processEntries', () => {
       const requests = sentRequests();
       assert.equal(requests.length, 1);
       assert.equal(requests[0].url, GRAPH_URL);
-      assert.equal(requests[0].body.message.text, ATTACHMENT_REPLY.text);
       assert.equal(requests[0].body.message.text, ATTACHMENT_TEXT);
+      assert.deepEqual(quickReplyPayloads(requests[0].body), quick.MENU.map((item) => item.payload));
       assert.ok(requests.every((request) => !request.url.includes('cdn.example.test')));
-      assert.deepEqual(logged('[AutoReply] Matching reply rule'), [{ rule: 'attachment', step: null }]);
+      assert.deepEqual(logged('[AutoReply] Matching reply rule'), [{ rule: 'attachment', step: STEPS.IDLE }]);
       const [incoming] = logged('[Messenger] Incoming customer message');
       assert.equal(incoming.attachmentCount, 1);
       assert.equal(incoming.kind, 'attachment');
       assertNoLeaks(attachmentUrl);
     });
 
-    test('an attachment does not touch the session', async () => {
+    test('an attachment in the middle of an order repeats the current question and keeps the draft', async () => {
       await tap(orderProductPayload(product.id));
       await say('2');
       const before = sessionStore.get(sessionKey);
       assert.equal(before.step, STEPS.WAITING_FOR_PHONE);
 
-      // Even reading would be a touch: get() deletes an expired session and reports it only once.
-      const spies = ['get', 'update', 'reset', 'delete'].map((method) => mock.method(sessionStore, method));
+      // Never written: only Cancel (or another product) may change an order in progress.
+      const spies = ['update', 'reset', 'delete'].map((method) => mock.method(sessionStore, method));
       await run([entryOf([messageEvent({ mid: nextMid(), text: undefined, attachments: [{ type: 'image' }] })])]);
-      assert.deepEqual(spies.map((spy) => spy.mock.callCount()), [0, 0, 0, 0]);
+      assert.deepEqual(spies.map((spy) => spy.mock.callCount()), [0, 0, 0]);
       spies.forEach((spy) => spy.mock.restore());
 
-      assert.equal(sentBodies().at(-1).message.text, ATTACHMENT_TEXT);
+      const question = sentBodies().at(-1);
+      assert.equal(question.message.text, texts.resumed(texts.ATTACHMENT_IN_ORDER, texts.askPhone(null)));
+      assert.deepEqual(quickReplyPayloads(question), [undefined, 'CANCEL_ORDER']); // Messenger's phone button, Cancel
       assert.deepEqual(sessionStore.get(sessionKey), before);
     });
 
@@ -890,7 +891,7 @@ describe('processEntries', () => {
         held.releases[1]();
         await batch;
 
-        assert.deepEqual(sentBodies().map((body) => body.message.text), [texts.orderStart(product), texts.ASK_PHONE]);
+        assert.deepEqual(sentBodies().map((body) => body.message.text), [texts.orderStart(product), texts.askPhone(null)]);
       } finally {
         held.releaseAll();
       }

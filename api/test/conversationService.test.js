@@ -8,7 +8,9 @@ import {
   MY_ORDERS_PAYLOAD,
   NEW_DETAILS_PAYLOAD,
   SUPPORT_PAYLOAD,
+  USE_SAVED_ADDRESS_PAYLOAD,
   USE_SAVED_DETAILS_PAYLOAD,
+  USE_SAVED_PHONE_PAYLOAD,
   catalogPagePayload,
   confirmOrderPayload,
   orderProductPayload,
@@ -66,19 +68,19 @@ async function reachSummary(h, who = ALICE, { product = FIRST, quantity = '2', p
 function summaryText(product, quantity, phone, address) {
   return `🛍️ আপনার অর্ডার:
 
-Product: ${product.name}
-Quantity: ${quantity}
-Unit Price: ৳${product.price}
-Subtotal: ৳${product.price * quantity}
-Phone: ${phone}
-Address: ${address}
+পণ্য: ${product.name}
+পরিমাণ: ${quantity}
+একক দাম: ৳${product.price}
+মোট দাম: ৳${product.price * quantity}
+মোবাইল: ${phone}
+ঠিকানা: ${address}
 
-Delivery charge: Not calculated
+ডেলিভারি চার্জ: এখনো যোগ করা হয়নি
 
 অর্ডারটি নিশ্চিত করবেন?
 
-1. Confirm
-2. Cancel`;
+1. ✅ নিশ্চিত করুন
+2. ❌ বাতিল করুন`;
 }
 
 // A small catalog whose products the test can change after the conversation has started.
@@ -168,7 +170,7 @@ test('"2" shows only the customer\'s own latest orders, without phone or address
     assert.equal(reply.rule, 'order_info');
     assert.ok(!reply.text.includes(mine[0].id), 'only the 3 newest orders are listed');
     for (const order of mine.slice(1)) {
-      assert.ok(reply.text.includes(`${order.id} – ${FIRST.name} × ${order.quantity} – ৳${order.subtotal} – pending`));
+      assert.ok(reply.text.includes(`${order.id} – ${FIRST.name} × ${order.quantity} – ৳${order.subtotal} – অপেক্ষমাণ`));
     }
     assert.ok(!reply.text.includes(bobs.id));
     assert.ok(!reply.text.includes('01999999999'));
@@ -313,12 +315,12 @@ test('typing a product code starts an order from the menu and from the catalog',
   assertSingleText(await h.say(FIRST.id.toLowerCase()), 'order_start', texts.orderStart(FIRST));
   assert.equal(h.session().productId, FIRST.id);
 
-  await h.say('menu');
+  await h.say('cancel');
   await h.say('1');
   assertSingleText(await h.say(`order ${SECOND.id}`), 'order_start', texts.orderStart(SECOND));
   assert.equal(h.session().productId, SECOND.id);
 
-  await h.say('menu');
+  await h.say('বাতিল');
   assertSingleText(await h.say(`Order ${FIRST.id.toLowerCase()}!`), 'order_start', texts.orderStart(FIRST));
   assert.equal(h.orders.size(), 0);
 });
@@ -365,13 +367,13 @@ test('invalid quantities are rejected and the state does not change', async () =
 test('1 is a quantity while the quantity is expected; the Bangla digit works too', async () => {
   const h = setup();
   await h.tap(orderProductPayload(FIRST.id));
-  assertSingleText(await h.say('1'), 'quantity_ok', texts.ASK_PHONE);
+  assertSingleText(await h.say('1'), 'quantity_ok', texts.askPhone(null));
   assert.equal(h.session().quantity, 1);
   assert.equal(h.session().step, STEPS.WAITING_FOR_PHONE);
 
   await h.say('cancel');
   await h.tap(orderProductPayload(FIRST.id));
-  assertSingleText(await h.say('১০০'), 'quantity_ok', texts.ASK_PHONE);
+  assertSingleText(await h.say('১০০'), 'quantity_ok', texts.askPhone(null));
   assert.equal(h.session().quantity, 100);
 });
 
@@ -392,7 +394,7 @@ test('phone numbers are stored in the local 01XXXXXXXXX form', async () => {
     const h = setup();
     await h.tap(orderProductPayload(FIRST.id));
     await h.say('2');
-    assertSingleText(await h.say(input), 'phone_ok', texts.ASK_ADDRESS);
+    assertSingleText(await h.say(input), 'phone_ok', texts.askAddress(null));
     assert.equal(h.session().phone, PHONE, input);
     assert.equal(h.session().step, STEPS.WAITING_FOR_ADDRESS);
   }
@@ -476,8 +478,8 @@ test('text 1 confirms: one order with a snapshot, then the session is clean', as
   assert.equal(order.status, 'pending');
 
   assert.deepEqual(h.session(), h.sessions.get('nobody:nobody'));
-  assert.ok(replies[0].text.includes(`Order ID: ${order.id}`));
-  assert.ok(replies[0].text.includes(`Total: ৳${FIRST.price * 3}`));
+  assert.ok(replies[0].text.includes(`অর্ডার আইডি: ${order.id}`));
+  assert.ok(replies[0].text.includes(`মোট: ৳${FIRST.price * 3}`));
   assert.ok(!replies[0].text.includes(PHONE));
   assert.ok(!replies[0].text.includes(ADDRESS));
 });
@@ -547,7 +549,10 @@ test('an old confirm button does not confirm a newer draft', async () => {
   const newDraft = await reachSummary(h, ALICE, { product: SECOND });
   assert.notEqual(oldDraft.draftId, newDraft.draftId);
 
-  assertSingleText(await h.tap(confirmOrderPayload(oldDraft.draftId)), 'confirm_stale');
+  // The order in progress is shown again with its own, current Confirm button.
+  const [resumed] = await h.tap(confirmOrderPayload(oldDraft.draftId));
+  assert.equal(resumed.rule, 'order_resumed');
+  assert.equal(resumed.draftId, newDraft.draftId);
   assert.equal(h.orders.size(), 0);
   assert.equal(h.session().draftId, newDraft.draftId);
 
@@ -626,26 +631,87 @@ test('cancel works in every step', async () => {
   }
 });
 
-test('menu and hi in the middle of an order throw the draft away', async () => {
+test('menu and hi in the middle of an order keep the draft and ask the current question again', async () => {
   for (const word of ['menu', 'hi', 'Hello', 'start', 'মেনু']) {
     const h = setup();
-    await reachSummary(h);
-    assertSingleText(await h.say(word), 'welcome', texts.WELCOME);
-    assert.deepEqual(h.session(), h.sessions.get('nobody:nobody'));
+    const summary = await reachSummary(h);
+    const before = h.session();
+    const [reply] = await h.say(word);
+    assert.deepEqual(reply, {
+      kind: 'order_confirmation',
+      rule: 'order_resumed',
+      text: texts.resumed(texts.ORDER_IN_PROGRESS, summary.text),
+      draftId: summary.draftId,
+    });
+    assert.deepEqual(h.session(), before);
     assert.equal(h.orders.size(), 0);
+
+    await h.say('1'); // the same draft can still be confirmed
+    assert.equal(h.orders.size(), 1);
   }
   const h = setup();
   await h.tap(orderProductPayload(FIRST.id));
   await h.say('2');
-  assertSingleText(await h.tap(MENU_PAYLOAD), 'welcome');
-  assert.equal(h.session().step, STEPS.IDLE);
-  assert.equal(h.session().quantity, null);
+  assertSingleText(
+    await h.tap(MENU_PAYLOAD),
+    'order_resumed',
+    texts.resumed(texts.ORDER_IN_PROGRESS, texts.askPhone(null)),
+  );
+  assert.equal(h.session().step, STEPS.WAITING_FOR_PHONE);
+  assert.equal(h.session().quantity, 2);
+});
+
+test('every step of an order is asked again after a word that is not an answer', async () => {
+  const h = setup();
+  await h.tap(orderProductPayload(FIRST.id));
+  let [reply] = await h.say('hi');
+  assert.equal(reply.text, texts.resumed(texts.ORDER_IN_PROGRESS, texts.orderStart(FIRST)));
+  assert.deepEqual(reply.quickReplies, quick.QUANTITY);
+
+  await h.say('2');
+  await h.say(PHONE);
+  [reply] = await h.say('hello');
+  assert.equal(reply.text, texts.resumed(texts.ORDER_IN_PROGRESS, texts.askAddress(null)));
+  assert.deepEqual(reply.quickReplies, quick.address(null));
+  assert.equal(h.session().step, STEPS.WAITING_FOR_ADDRESS);
+});
+
+test('only cancel starts over in the middle of an order', async () => {
+  for (const word of ['cancel', 'বাতিল', 'বাতিল করুন', 'delete']) {
+    const h = setup();
+    await h.tap(orderProductPayload(FIRST.id));
+    await h.say('2');
+    assertSingleText(await h.say(word), 'order_cancelled', texts.ORDER_CANCELLED);
+    assert.equal(h.session().step, STEPS.IDLE);
+  }
+});
+
+test('My orders and Support in the middle of an order answer, then ask the current question again', async () => {
+  const h = setup();
+  await h.tap(orderProductPayload(FIRST.id));
+  for (const [payload, rule] of [[MY_ORDERS_PAYLOAD, 'order_info'], [SUPPORT_PAYLOAD, 'support']]) {
+    const [info, question] = await h.tap(payload);
+    assert.equal(info.rule, rule);
+    assert.equal(info.quickReplies, undefined);
+    assert.equal(question.rule, 'order_resumed');
+    assert.deepEqual(question.quickReplies, quick.QUANTITY);
+  }
+  assert.equal(h.session().step, STEPS.WAITING_FOR_QUANTITY);
+});
+
+test('an attachment repeats the current question in an order and explains itself outside one', async () => {
+  const h = setup();
+  assertSingleText(await h.service.handle({ ...ALICE, input: { type: 'attachment' } }), 'attachment', texts.ATTACHMENT);
+  await h.tap(orderProductPayload(FIRST.id));
+  const [reply] = await h.service.handle({ ...ALICE, input: { type: 'attachment' } });
+  assert.equal(reply.text, texts.resumed(texts.ATTACHMENT_IN_ORDER, texts.orderStart(FIRST)));
+  assert.equal(h.session().step, STEPS.WAITING_FOR_QUANTITY);
 });
 
 test('after a reset the next order starts from a clean slate', async () => {
   const h = setup();
   await reachSummary(h);
-  await h.say('menu');
+  await h.say('cancel');
   await h.say('1'); // the menu choice, not a confirmation
   assert.equal(h.orders.size(), 0);
   const summary = await reachSummary(h, ALICE, { product: SECOND, quantity: '4', phone: '01812345678' });
@@ -673,15 +739,15 @@ test('choosing another product mid-order restarts the draft cleanly', async () =
   assert.equal(summary.text, summaryText(SECOND, 5, '01912345678', 'Road 7, Tangail Town'));
 });
 
-test('browsing the catalog abandons a half-finished draft', async () => {
+test('an old catalog button in the middle of an order keeps the draft', async () => {
   const h = setup();
   await h.tap(orderProductPayload(FIRST.id));
   await h.say('2');
-  await h.tap(catalogPagePayload(1));
+  assert.equal((await h.tap(catalogPagePayload(1)))[0].rule, 'order_resumed');
   const session = h.session();
-  assert.equal(session.step, STEPS.BROWSING_PRODUCTS);
-  assert.equal(session.productId, null);
-  assert.equal(session.quantity, null);
+  assert.equal(session.step, STEPS.WAITING_FOR_PHONE);
+  assert.equal(session.productId, FIRST.id);
+  assert.equal(session.quantity, 2);
 });
 
 // --- isolation and expiry --------------------------------------------------------------------------
@@ -908,10 +974,10 @@ test('every step offers its quick replies', async () => {
   assert.deepEqual((await h.say('hi'))[0].quickReplies, quick.MENU);
   assert.deepEqual((await h.tap(orderProductPayload(FIRST.id)))[0].quickReplies, quick.QUANTITY);
   assert.deepEqual((await h.say('many'))[0].quickReplies, quick.QUANTITY);
-  assert.deepEqual((await h.say('2'))[0].quickReplies, quick.PHONE);
-  assert.deepEqual((await h.say('12345'))[0].quickReplies, quick.PHONE);
-  assert.deepEqual((await h.say(PHONE))[0].quickReplies, quick.ADDRESS);
-  assert.deepEqual((await h.say('short'))[0].quickReplies, quick.ADDRESS);
+  assert.deepEqual((await h.say('2'))[0].quickReplies, quick.phone(null));
+  assert.deepEqual((await h.say('12345'))[0].quickReplies, quick.phone(null));
+  assert.deepEqual((await h.say(PHONE))[0].quickReplies, quick.address(null));
+  assert.deepEqual((await h.say('short'))[0].quickReplies, quick.address(null));
   await h.say(ADDRESS);
   const [confirmed] = await h.say('1');
   assert.equal(confirmed.rule, 'order_confirmed');
@@ -923,12 +989,12 @@ test('every step offers its quick replies', async () => {
 test('the quantity quick reply answers the quantity question', async () => {
   const h = setup();
   await h.tap(orderProductPayload(FIRST.id));
-  assertSingleText(await h.tap(quantityPayload(3)), 'quantity_ok', texts.ASK_PHONE);
+  assertSingleText(await h.tap(quantityPayload(3)), 'quantity_ok', texts.askPhone(null));
   assert.equal(h.session().quantity, 3);
   assert.equal(h.session().step, STEPS.WAITING_FOR_PHONE);
 });
 
-test('a quick reply from an earlier step is answered with the menu and changes nothing', async () => {
+test('a quick reply from an earlier step changes nothing', async () => {
   const h = setup();
   for (const payload of [quantityPayload(2), USE_SAVED_DETAILS_PAYLOAD, NEW_DETAILS_PAYLOAD]) {
     const [reply] = await h.tap(payload);
@@ -938,7 +1004,8 @@ test('a quick reply from an earlier step is answered with the menu and changes n
   }
   await h.tap(orderProductPayload(FIRST.id));
   await h.tap(quantityPayload(2));
-  assert.equal((await h.tap(quantityPayload(4)))[0].rule, 'button_stale');
+  // In the middle of an order an old button asks the current question again.
+  assert.equal((await h.tap(quantityPayload(4)))[0].rule, 'order_resumed');
   assert.equal(h.session().quantity, 2);
   assert.equal(h.session().step, STEPS.WAITING_FOR_PHONE);
 });
@@ -990,7 +1057,9 @@ test('typing 1, yes or হ্যাঁ uses the saved details; 2, no or না a
     await orderOnce(h);
     await h.tap(orderProductPayload(FIRST.id));
     await h.say('2');
-    assertSingleText(await h.say(word), 'new_details', texts.ASK_PHONE);
+    const [reply] = await h.say(word);
+    assert.equal(reply.rule, 'new_details');
+    assert.equal(reply.text, texts.askPhone(PHONE)); // the last number is still offered on its own
     assert.equal(h.session().step, STEPS.WAITING_FOR_PHONE);
     assert.equal(h.session().phone, null);
     assert.equal(h.session().address, null);
@@ -1002,10 +1071,52 @@ test('the New details quick reply asks for a new phone and address, which are th
   await orderOnce(h);
   await h.tap(orderProductPayload(FIRST.id));
   await h.say('2');
-  assertSingleText(await h.tap(NEW_DETAILS_PAYLOAD), 'new_details', texts.ASK_PHONE);
-  await h.say('01898765432');
+  assertSingleText(await h.tap(NEW_DETAILS_PAYLOAD), 'new_details', texts.askPhone(PHONE));
+  assertSingleText(await h.say('01898765432'), 'phone_ok', texts.askAddress(ADDRESS));
   const [summary] = await h.say('Flat 4B, Lake Road, Dhaka 1212');
   assert.equal(summary.text, summaryText(FIRST, 2, '01898765432', 'Flat 4B, Lake Road, Dhaka 1212'));
+});
+
+test('after New details, the 📱 and 🏠 buttons keep the last phone or address on its own', async () => {
+  // Keep the number, change the address.
+  let h = setup();
+  await orderOnce(h);
+  await h.tap(orderProductPayload(FIRST.id));
+  await h.say('2');
+  const [phoneQuestion] = await h.tap(NEW_DETAILS_PAYLOAD);
+  assert.deepEqual(phoneQuestion.quickReplies, [
+    { type: 'user_phone_number' },
+    { title: `📱 ${PHONE}`, payload: USE_SAVED_PHONE_PAYLOAD },
+    { title: texts.BUTTONS.cancel, payload: CANCEL_ORDER_PAYLOAD },
+  ]);
+  assertSingleText(await h.tap(USE_SAVED_PHONE_PAYLOAD), 'phone_ok', texts.askAddress(ADDRESS));
+  let [summary] = await h.say('Flat 4B, Lake Road, Dhaka 1212');
+  assert.equal(summary.text, summaryText(FIRST, 2, PHONE, 'Flat 4B, Lake Road, Dhaka 1212'));
+
+  // Change the number, keep the address.
+  h = setup();
+  await orderOnce(h);
+  await h.tap(orderProductPayload(FIRST.id));
+  await h.say('2');
+  await h.tap(NEW_DETAILS_PAYLOAD);
+  const [addressQuestion] = await h.say('01898765432');
+  assert.deepEqual(addressQuestion.quickReplies, [
+    { title: texts.BUTTONS.savedAddress, payload: USE_SAVED_ADDRESS_PAYLOAD },
+    { title: texts.BUTTONS.cancel, payload: CANCEL_ORDER_PAYLOAD },
+  ]);
+  [summary] = await h.tap(USE_SAVED_ADDRESS_PAYLOAD);
+  assert.equal(summary.rule, 'order_summary');
+  assert.equal(summary.text, summaryText(FIRST, 2, '01898765432', ADDRESS));
+});
+
+test('a first-time customer gets no 📱 or 🏠 button, and those payloads change nothing', async () => {
+  const h = setup();
+  await h.tap(orderProductPayload(FIRST.id));
+  assert.deepEqual((await h.say('2'))[0].quickReplies, quick.phone(null));
+  assert.equal((await h.tap(USE_SAVED_PHONE_PAYLOAD))[0].rule, 'order_resumed');
+  assert.deepEqual((await h.say(PHONE))[0].quickReplies, quick.address(null));
+  assert.equal((await h.tap(USE_SAVED_ADDRESS_PAYLOAD))[0].rule, 'order_resumed');
+  assert.equal(h.session().step, STEPS.WAITING_FOR_ADDRESS);
 });
 
 test('typing a new phone number at the saved-details question goes on to the address', async () => {
@@ -1013,7 +1124,7 @@ test('typing a new phone number at the saved-details question goes on to the add
   await orderOnce(h);
   await h.tap(orderProductPayload(FIRST.id));
   await h.say('2');
-  assertSingleText(await h.say('+8801898765432'), 'phone_ok', texts.ASK_ADDRESS);
+  assertSingleText(await h.say('+8801898765432'), 'phone_ok', texts.askAddress(ADDRESS));
   assert.equal(h.session().phone, '01898765432');
   assert.equal(h.session().step, STEPS.WAITING_FOR_ADDRESS);
 });
@@ -1035,7 +1146,7 @@ test('saved details belong to one customer: another customer is asked for their 
   await orderOnce(h, ALICE);
   await h.tap(orderProductPayload(FIRST.id), BOB);
   const replies = await h.say('2', BOB);
-  assertSingleText(replies, 'quantity_ok', texts.ASK_PHONE);
+  assertSingleText(replies, 'quantity_ok', texts.askPhone(null));
   assert.ok(!JSON.stringify(replies).includes(PHONE));
 });
 

@@ -4,11 +4,13 @@ import {
   MY_ORDERS_PAYLOAD,
   NEW_DETAILS_PAYLOAD,
   SUPPORT_PAYLOAD,
+  USE_SAVED_ADDRESS_PAYLOAD,
   USE_SAVED_DETAILS_PAYLOAD,
+  USE_SAVED_PHONE_PAYLOAD,
   catalogPagePayload,
   quantityPayload,
 } from './payloads.js';
-import { BUTTONS } from './replyTexts.js';
+import { BUTTONS, savedPhoneButton } from './replyTexts.js';
 
 // The quick-reply buttons under the bot's text replies, so every step of the order can be
 // answered with a tap. A tap arrives as an ordinary message carrying the payload (no postback
@@ -43,6 +45,14 @@ export const SAVED_DETAILS = Object.freeze([
   cancel,
 ]);
 
-export const PHONE = Object.freeze([{ type: 'user_phone_number' }, cancel]);
+// The phone and address questions offer the values of the customer's last order, when there
+// are any, so a returning customer can keep one and change the other.
+export const phone = (previousPhone) =>
+  Object.freeze([
+    { type: 'user_phone_number' },
+    ...(previousPhone ? [{ title: savedPhoneButton(previousPhone), payload: USE_SAVED_PHONE_PAYLOAD }] : []),
+    cancel,
+  ]);
 
-export const ADDRESS = Object.freeze([cancel]);
+export const address = (previousAddress) =>
+  Object.freeze([...(previousAddress ? [{ title: BUTTONS.savedAddress, payload: USE_SAVED_ADDRESS_PAYLOAD }] : []), cancel]);

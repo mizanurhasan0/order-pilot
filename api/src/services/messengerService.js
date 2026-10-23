@@ -35,13 +35,13 @@ const IMAGE_ASPECT_RATIOS = ['square', 'horizontal'];
 const RECIPIENT_FORMAT = /^\d+$/;
 
 const LABELS = {
-  order: 'Order Now',
+  order: '🛒 অর্ডার করুন',
   product: '🛒',
-  confirm: '✅ Confirm',
-  cancel: '❌ Cancel',
-  previous: '◀ Previous',
-  next: 'Next ▶',
-  menu: 'Menu',
+  confirm: '✅ নিশ্চিত করুন',
+  cancel: '❌ বাতিল',
+  previous: '◀ আগের',
+  next: 'পরের ▶',
+  menu: '🏠 মেনু',
 };
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);

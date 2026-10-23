@@ -1,5 +1,6 @@
 // Every customer-facing string of the order flow lives here, so wording can be reviewed
 // and changed in one place. The conversation engine only picks which text to send.
+// Everything is Bangla; product names, prices and order ids are shown as they are stored.
 
 const lines = (list) => list.join('\n');
 
@@ -7,18 +8,23 @@ export const formatPrice = (amount) => `৳${amount}`;
 
 // Quick-reply labels (Messenger cuts them at 20 characters).
 export const BUTTONS = Object.freeze({
-  products: '🛍️ View Products',
-  myOrders: '📦 My Orders',
-  support: '👨‍💼 Support',
-  shopMore: '🛍️ Shop More',
-  menu: '🏠 Menu',
-  cancel: '❌ Cancel',
-  useSaved: '✅ Yes, use these',
-  newDetails: '✏️ New details',
+  products: '🛍️ পণ্য দেখুন',
+  myOrders: '📦 আমার অর্ডার',
+  support: '👨‍💼 সহায়তা',
+  shopMore: '🛍️ আরও কিনুন',
+  menu: '🏠 মেনু',
+  cancel: '❌ বাতিল',
+  useSaved: '✅ হ্যাঁ, এই তথ্য',
+  newDetails: '✏️ নতুন তথ্য দেব',
+  savedAddress: '🏠 আগের ঠিকানা',
 });
 
-const MENU_OPTIONS = lines(['1. 🛍️ View Products', '2. 📦 My Order Information', '3. 👨‍💼 Contact Support']);
+// The button that reuses the number of the customer's last order.
+export const savedPhoneButton = (phone) => `📱 ${phone}`;
+
+const MENU_OPTIONS = lines(['1. 🛍️ পণ্য দেখুন', '2. 📦 আমার অর্ডারের তথ্য', '3. 👨‍💼 সহায়তা']);
 const MENU_PROMPT = 'নিচের বাটনে চাপুন, অথবা 1, 2 বা 3 লিখুন।';
+const CANCEL_HINT = 'বাতিল করতে ❌ বাতিল চাপুন, অথবা "বাতিল" লিখুন।';
 
 export const WELCOME = lines([
   'স্বাগতম! 🛍️',
@@ -30,11 +36,11 @@ export const WELCOME = lines([
   MENU_OPTIONS,
 ]);
 
-export const SUPPORT = lines(['👨‍💼 Contact Support', '', 'আমাদের টিম আপনার মেসেজের উত্তর দেবে।']);
+export const SUPPORT = lines(['👨‍💼 সহায়তা', '', 'আমাদের টিম শিগগিরই আপনার মেসেজের উত্তর দেবে।']);
 
 export const FALLBACK = lines(['দুঃখিত, আপনার মেসেজটি বুঝতে পারিনি।', '', MENU_OPTIONS, '', MENU_PROMPT]);
 
-// Sent by autoReplyService for photos, stickers and other non-text messages.
+// Photos, stickers, likes and other non-text messages outside an order.
 export const ATTACHMENT = lines(['দুঃখিত, আমি এখন শুধু টেক্সট মেসেজ বুঝতে পারি।', '', MENU_PROMPT]);
 
 export const SESSION_EXPIRED = lines([
@@ -45,9 +51,20 @@ export const SESSION_EXPIRED = lines([
   WELCOME,
 ]);
 
+// --- in the middle of an order ---------------------------------------------------------
+// Anything that is not an answer (a greeting, Menu, an old button, a sticker) keeps the order
+// and repeats the current question under one of these lines. Only Cancel starts over.
+
+export const ORDER_IN_PROGRESS = '⏳ আপনার অর্ডারটি এখনো চলছে। নিচের প্রশ্নের উত্তর দিন, অথবা নতুন করে শুরু করতে ❌ বাতিল চাপুন।';
+
+export const ATTACHMENT_IN_ORDER = lines(['দুঃখিত, ছবি বা স্টিকার বুঝতে পারি না।', ORDER_IN_PROGRESS]);
+
+// The note on top, then the question it repeats.
+export const resumed = (note, question) => lines([note, '', question]);
+
 // --- catalog ---------------------------------------------------------------------------
 
-const CATALOG_HINT = 'next / previous / menu / cancel লিখেও যেতে পারেন।';
+const CATALOG_HINT = 'পৃষ্ঠা বদলাতে "পরের" বা "আগের" লিখুন, মেনুর জন্য "মেনু"।';
 
 const catalogHeader = (page, totalPages) => `🛍️ পণ্য তালিকা – পৃষ্ঠা ${page}/${totalPages}`;
 
@@ -70,22 +87,16 @@ export const catalogFallback = (products, page, totalPages) =>
     CATALOG_HINT,
   ]);
 
-export const CATALOG_EDGE_FIRST = lines([
-  'এটিই প্রথম পৃষ্ঠা।',
-  'পরের পৃষ্ঠায় যেতে next লিখুন, অথবা menu লিখুন।',
-]);
+export const CATALOG_EDGE_FIRST = lines(['এটিই প্রথম পৃষ্ঠা।', 'পরের পৃষ্ঠায় যেতে "পরের" লিখুন, অথবা "মেনু" লিখুন।']);
 
-export const CATALOG_EDGE_LAST = lines([
-  'এটিই শেষ পৃষ্ঠা।',
-  'আগের পৃষ্ঠায় যেতে previous লিখুন, অথবা menu লিখুন।',
-]);
+export const CATALOG_EDGE_LAST = lines(['এটিই শেষ পৃষ্ঠা।', 'আগের পৃষ্ঠায় যেতে "আগের" লিখুন, অথবা "মেনু" লিখুন।']);
 
-export const CATALOG_EMPTY = lines(['দুঃখিত, এই মুহূর্তে কোনো পণ্য পাওয়া যাচ্ছে না।', '', 'মেনু দেখতে menu লিখুন।']);
+export const CATALOG_EMPTY = lines(['দুঃখিত, এই মুহূর্তে কোনো পণ্য পাওয়া যাচ্ছে না।', '', 'মেনু দেখতে "মেনু" লিখুন।']);
 
 export const PRODUCT_NOT_FOUND = lines([
   'দুঃখিত, এই পণ্যটি পাওয়া যায়নি অথবা এখন স্টকে নেই।',
   '',
-  'পণ্য তালিকা দেখতে 1 লিখুন, অথবা menu লিখুন।',
+  'পণ্য তালিকা দেখতে 1 লিখুন, অথবা "মেনু" লিখুন।',
 ]);
 
 // --- collecting the order --------------------------------------------------------------
@@ -95,33 +106,38 @@ export const orderStart = (product) =>
     'আপনি নির্বাচন করেছেন:',
     '',
     product.name,
-    `Price: ${formatPrice(product.price)}`,
+    `দাম: ${formatPrice(product.price)}`,
     '',
     'কয়টি পিস অর্ডার করবেন?',
     'নিচের বাটনে চাপুন, অথবা 1 থেকে 100 লিখুন।',
     '',
-    'বাতিল করতে cancel লিখুন।',
+    CANCEL_HINT,
   ]);
 
 export const QUANTITY_INVALID = 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 থেকে 100-এর মধ্যে একটি সংখ্যা লিখুন।';
 
-export const ASK_PHONE = lines([
-  '📱 আপনার মোবাইল নম্বর দিন।',
-  'নিচে আপনার নম্বরের বাটন থাকলে চাপুন, অথবা লিখুন। যেমন: 017XXXXXXXX',
-]);
+// `previousPhone`: the number of the customer's last order, offered as a button.
+export const askPhone = (previousPhone) =>
+  lines([
+    '📱 আপনার মোবাইল নম্বর দিন।',
+    ...(previousPhone ? [`আগের নম্বরটি (${previousPhone}) দিতে নিচের 📱 বাটনে চাপুন।`] : []),
+    'নিচে আপনার নম্বরের বাটন থাকলে চাপুন, অথবা লিখুন। যেমন: 017XXXXXXXX',
+  ]);
 
 // A returning customer: the phone and address of their last order, offered for this one.
 export const savedDetails = ({ phone, address }) =>
   lines([
     'আগের অর্ডারের তথ্য:',
     '',
-    `Phone: ${phone}`,
-    `Address: ${address}`,
+    `মোবাইল: ${phone}`,
+    `ঠিকানা: ${address}`,
     '',
     'এই নম্বর আর ঠিকানায় ডেলিভারি দেব?',
     '',
     '1. ✅ হ্যাঁ, এই তথ্য',
     '2. ✏️ নতুন তথ্য দেব',
+    '',
+    'শুধু নম্বর বা শুধু ঠিকানা বদলাতে চাইলেও 2 বেছে নিন, পরের ধাপে আগেরটি রাখার বাটন পাবেন।',
   ]);
 
 export const SAVED_DETAILS_INVALID = 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (এই তথ্য) / 2 (নতুন তথ্য) লিখুন।';
@@ -133,10 +149,15 @@ export const PHONE_INVALID = lines([
   '017XXXXXXXX, +88017XXXXXXXX, 88017XXXXXXXX',
 ]);
 
-export const ASK_ADDRESS = lines([
-  '🏠 আপনার সম্পূর্ণ ডেলিভারি ঠিকানা লিখুন।',
-  'যেমন: বাসা 12, রোড 3, টাঙ্গাইল সদর, টাঙ্গাইল',
-]);
+// `previousAddress`: the address of the customer's last order, offered as a button.
+export const askAddress = (previousAddress) =>
+  lines([
+    '🏠 আপনার সম্পূর্ণ ডেলিভারি ঠিকানা লিখুন।',
+    'যেমন: বাসা 12, রোড 3, টাঙ্গাইল সদর, টাঙ্গাইল',
+    ...(previousAddress
+      ? ['', `আগের ঠিকানা: ${previousAddress}`, 'একই ঠিকানায় নিতে নিচের 🏠 আগের ঠিকানা বাটনে চাপুন।']
+      : []),
+  ]);
 
 export const ADDRESS_INVALID = lines([
   'দুঃখিত, ঠিকানাটি সঠিক মনে হচ্ছে না।',
@@ -144,30 +165,32 @@ export const ADDRESS_INVALID = lines([
   'অনুগ্রহ করে 10 থেকে 200 অক্ষরের মধ্যে সম্পূর্ণ ঠিকানা লিখুন।',
 ]);
 
+const DELIVERY_CHARGE = 'ডেলিভারি চার্জ: এখনো যোগ করা হয়নি';
+
 export const orderSummary = ({ name, product, quantity, unitPrice, subtotal, phone, address }) =>
   lines([
     '🛍️ আপনার অর্ডার:',
     '',
-    `Product: ${name ?? product?.name}`,
-    `Quantity: ${quantity}`,
-    `Unit Price: ${formatPrice(unitPrice)}`,
-    `Subtotal: ${formatPrice(subtotal)}`,
-    `Phone: ${phone}`,
-    `Address: ${address}`,
+    `পণ্য: ${name ?? product?.name}`,
+    `পরিমাণ: ${quantity}`,
+    `একক দাম: ${formatPrice(unitPrice)}`,
+    `মোট দাম: ${formatPrice(subtotal)}`,
+    `মোবাইল: ${phone}`,
+    `ঠিকানা: ${address}`,
     '',
-    'Delivery charge: Not calculated',
+    DELIVERY_CHARGE,
     '',
     'অর্ডারটি নিশ্চিত করবেন?',
     '',
-    '1. Confirm',
-    '2. Cancel',
+    '1. ✅ নিশ্চিত করুন',
+    '2. ❌ বাতিল করুন',
   ]);
 
-export const CONFIRM_INVALID = 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (Confirm) / 2 (Cancel) লিখুন।';
+export const CONFIRM_INVALID = 'অনুগ্রহ করে নিচের বাটনে চাপুন, অথবা 1 (নিশ্চিত) / 2 (বাতিল) লিখুন।';
 
-export const CONFIRM_STALE = lines(['এই কনফার্মেশনটি আর বৈধ নয়।', '', 'নতুন করে শুরু করতে menu লিখুন।']);
+export const CONFIRM_STALE = lines(['এই কনফার্মেশনটি আর বৈধ নয়।', '', 'নতুন করে শুরু করতে "মেনু" লিখুন।']);
 
-// An old quick reply tapped after the conversation moved on.
+// An old quick reply tapped while no order is in progress.
 export const BUTTON_STALE = lines(['এই বাটনটি আর কাজ করছে না।', '', 'নিচের মেনু থেকে আবার শুরু করুন।']);
 
 // --- finishing -------------------------------------------------------------------------
@@ -176,17 +199,17 @@ export const orderConfirmed = (order) =>
   lines([
     '✅ আপনার অর্ডার নিশ্চিত হয়েছে!',
     '',
-    `Order ID: ${order.id}`,
-    `Total: ${formatPrice(order.subtotal)}`,
-    'Delivery charge: Not calculated',
+    `অর্ডার আইডি: ${order.id}`,
+    `মোট: ${formatPrice(order.subtotal)}`,
+    DELIVERY_CHARGE,
     '',
     'আমাদের টিম শিগগিরই আপনার সাথে যোগাযোগ করবে।',
     '',
-    'মেনু দেখতে menu লিখুন।',
+    'মেনু দেখতে "মেনু" লিখুন।',
   ]);
 
 export const orderDuplicate = (order) =>
-  lines(['এই অর্ডারটি ইতিমধ্যে নিশ্চিত করা হয়েছে।', ...(order?.id ? [`Order ID: ${order.id}`] : [])]);
+  lines(['এই অর্ডারটি ইতিমধ্যে নিশ্চিত করা হয়েছে।', ...(order?.id ? [`অর্ডার আইডি: ${order.id}`] : [])]);
 
 export const ORDER_CANCELLED = lines(['❌ অর্ডার বাতিল করা হয়েছে।', '', WELCOME]);
 
@@ -196,6 +219,8 @@ export const ORDER_PRODUCT_UNAVAILABLE = lines([
   '',
   WELCOME,
 ]);
+
+const ORDER_STATUS = { pending: 'অপেক্ষমাণ', confirmed: 'নিশ্চিত', cancelled: 'বাতিল' };
 
 // Deliberately has no phone number or address: only the customer's own order summary lines.
 export const orderInfo = (orders) => {
@@ -207,7 +232,7 @@ export const orderInfo = (orders) => {
     '',
     ...orders.map(
       (order) =>
-        `${order.id} – ${order.productName} × ${order.quantity} – ${formatPrice(order.subtotal)} – ${order.status}`,
+        `${order.id} – ${order.productName} × ${order.quantity} – ${formatPrice(order.subtotal)} – ${ORDER_STATUS[order.status] ?? order.status}`,
     ),
   ]);
 };

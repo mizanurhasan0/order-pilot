@@ -7,7 +7,7 @@ A small Node.js (Express 5) backend that lets Meta verify your **Callback URL**,
 **Phase 3 is in:**
 
 - A static catalog of **50 products** (ids `P001` to `P050`, 8 categories) and a public **REST product API** (section 14).
-- The catalog inside Messenger as **generic-template cards, 5 per page**, each with an **Order Now** postback button (section 15).
+- The catalog inside Messenger as **generic-template cards, 5 per page**, each with an **🛒 অর্ডার করুন** postback button (section 15).
 - **Order collection**: quantity, then phone number, then address, then a summary the customer confirms (section 15).
 - **In-memory orders** and an **admin-protected orders API** (section 16).
 - **30-minute conversation sessions**, one per customer.
@@ -16,7 +16,7 @@ A small Node.js (Express 5) backend that lets Meta verify your **Callback URL**,
 
 With `ENABLE_AUTO_REPLY=false` (the default) the Messenger side behaves exactly like Phase 1: it receives and logs webhook events and never replies. The product API and the orders API are always available, and the server will not start without `ADMIN_API_KEY` (section 2).
 
-Upgrading from Phase 2: no new dependencies, so `pnpm install` is not needed. Add `ADMIN_API_KEY` to your `.env` (section 2) and make sure the app is subscribed to `messaging_postbacks` (section 8), because the Order Now and Confirm buttons arrive as postbacks.
+Upgrading from Phase 2: no new dependencies, so `pnpm install` is not needed. Add `ADMIN_API_KEY` to your `.env` (section 2) and make sure the app is subscribed to `messaging_postbacks` (section 8), because the 🛒 অর্ডার করুন and Confirm buttons arrive as postbacks.
 
 ## Project structure
 
@@ -342,13 +342,13 @@ Development mode: while the app has only Standard Access, Meta delivers events o
 
 | Field | What arrives through it |
 | --- | --- |
-| `messages` | Text messages and **quick replies** (the `◀ Previous`, `Next ▶` and `Menu` buttons under the catalog arrive as messages that carry a payload) |
-| `messaging_postbacks` | **Postback buttons**: `Order Now` on a product card, and `✅ Confirm` / `❌ Cancel` under the order summary (and the Page's Get Started button, if you set one up) |
+| `messages` | Text messages and **quick replies** (the `◀ আগের`, `পরের ▶` and `🏠 মেনু` buttons under the catalog arrive as messages that carry a payload) |
+| `messaging_postbacks` | **Postback buttons**: `🛒 অর্ডার করুন` on a product card, and `✅ নিশ্চিত করুন` / `❌ বাতিল` under the order summary (and the Page's Get Started button, if you set one up) |
 | `messaging_referrals` | Optional: **product links** (`https://m.me/<page>?ref=ORDER_PRODUCT:P001`) opened by a customer who already chatted with the Page (section 15, "Product links for Facebook posts") |
 
-Without `messaging_postbacks` the bot still answers typed messages and the `Next ▶` quick replies, but tapping `Order Now` or `✅ Confirm` does nothing. (Customers can still order by typing a product code such as `P001` and confirming with `1`.) Subscribing to `message_echoes` is optional: echoes are copies of the messages your Page sends, and the server ignores them (they are logged as ignored, never answered). Delivery, read and reaction events are also ignored.
+Without `messaging_postbacks` the bot still answers typed messages and the `পরের ▶` quick replies, but tapping `🛒 অর্ডার করুন` or `✅ নিশ্চিত করুন` does nothing. (Customers can still order by typing a product code such as `P001` and confirming with `1`.) Subscribing to `message_echoes` is optional: echoes are copies of the messages your Page sends, and the server ignores them (they are logged as ignored, never answered). Delivery, read and reaction events are also ignored.
 
-Test with a real event: from a Facebook account that has a role on the app, send a message to the connected Page. The server log shows a `message` event with a masked sender ID and the text length, but not the text. Postbacks only arrive when someone taps a button the Page offers, so use section 9 to test postbacks without Messenger, or tap `Order Now` in section 17.
+Test with a real event: from a Facebook account that has a role on the app, send a message to the connected Page. The server log shows a `message` event with a masked sender ID and the text length, but not the text. Postbacks only arrive when someone taps a button the Page offers, so use section 9 to test postbacks without Messenger, or tap `🛒 অর্ডার করুন` in section 17.
 
 ## 9. Verify POST requests with a valid test signature
 
@@ -564,7 +564,7 @@ Meta's standard messaging rules let a business message a person only within 24 h
 | `HUMAN_AGENT` tag | Lets a business representative respond manually within 7 days | Never use it for automated messages. It is meant for a real human agent replying by hand. |
 | `CONFIRMED_EVENT_UPDATE`, `ACCOUNT_UPDATE`, `POST_PURCHASE_UPDATE` tags | Since 2026-04-27 requests with these tags return error code 100 | Not used |
 
-Consequence: **changing an order's status through the orders API does not message the customer** (section 16). A status update sent more than 24 hours after the customer's last message would need one of the approved mechanisms above, so plan for that before building order notifications. Customers see the current status of their own latest orders when they send `2` (My Order Information). Meta changes these rules from time to time, so check the current documentation: <https://developers.facebook.com/docs/messenger-platform/send-messages>.
+Consequence: **changing an order's status through the orders API does not message the customer** (section 16). A status update sent more than 24 hours after the customer's last message would need one of the approved mechanisms above, so plan for that before building order notifications. Customers see the current status of their own latest orders when they send `2` (আমার অর্ডারের তথ্য). Meta changes these rules from time to time, so check the current documentation: <https://developers.facebook.com/docs/messenger-platform/send-messages>.
 
 ## 14. Product catalog and REST API
 
@@ -715,31 +715,35 @@ The whole conversation is a small state machine in `src/services/conversationSer
 The normal path:
 
 ```
-Hi  ->  welcome menu  ->  1 (View Products)  ->  5 product cards + Next / Previous / Menu
-  ->  Order Now  ->  quantity?  ->  phone?  ->  address?  ->  summary with Confirm / Cancel
-  ->  Confirm  ->  order saved, "Order ID: ORD-1001"
+Hi  ->  welcome menu  ->  1 (🛍️ পণ্য দেখুন)  ->  5 product cards + পরের / আগের / মেনু
+  ->  🛒 অর্ডার করুন  ->  quantity?  ->  phone?  ->  address?  ->  summary with ✅ নিশ্চিত করুন / ❌ বাতিল
+  ->  ✅ নিশ্চিত করুন  ->  order saved, "অর্ডার আইডি: ORD-1001"
 ```
+
+Every customer-facing text and button is Bangla (section "Customer texts" below); the bot still understands the English words listed here.
 
 ### What the customer can type
 
 The whole message must match. Case, spaces and punctuation around it (`! . ? , ; : । ' " ~`) are ignored, and Bangla digits (১ ২ ৩) count as 1 2 3. `Hi!` and ` MENU ` match, `hello there` does not.
 
-**In every step** (these also throw away a half-finished order):
+**In every step:**
 
 | Customer sends | Result | `rule` |
 | --- | --- | --- |
-| `menu`, `মেনু`, `hi`, `hello`, `hey`, `start`, `হাই`, `হ্যালো` | Back to the welcome message and menu | `welcome` |
-| `cancel`, `বাতিল` | The order draft is dropped: "অর্ডার বাতিল করা হয়েছে" plus the menu | `order_cancelled` |
+| `cancel`, `cancel order`, `delete`, `বাতিল`, `বাতিল করুন` (or the ❌ বাতিল button) | The order draft is dropped: "অর্ডার বাতিল করা হয়েছে" plus the menu | `order_cancelled` |
+| `menu`, `মেনু`, `hi`, `hello`, `hey`, `start`, `হাই`, `হ্যালো` | Outside an order: back to the welcome message and menu. In the middle of an order: see below. | `welcome` / `order_resumed` |
+
+**Only Cancel ends an order in progress.** In the steps `WAITING_FOR_QUANTITY` to `WAITING_FOR_CONFIRMATION`, anything that is not an answer to the current question (a greeting, `menu`, the Menu button, an old button, a catalog page button, a photo or sticker, My orders, Support) keeps the draft and asks the current question again with its buttons, under `⏳ আপনার অর্ডারটি এখনো চলছে। ...` (`order_resumed`). At the summary the same draft is shown again, so its ✅ নিশ্চিত করুন button keeps working. My orders and Support first send their answer, then the question. Choosing another product (🛒 অর্ডার করুন on a card, or a product link) starts a new draft for that product.
 
 **At the menu and while browsing the catalog** (steps `IDLE` and `BROWSING_PRODUCTS`):
 
 | Customer sends | Result | `rule` |
 | --- | --- | --- |
-| `1`, `products`, `product`, `catalog`, `পণ্য`, `order`, `অর্ডার`, `view products` | The catalog, page 1 | `catalog` |
-| `2`, `my order information`, `order information`, `my orders`, `my order` | The customer's own latest 3 orders (id, product, quantity, total, status; no phone or address), or "no orders yet" | `order_info` |
-| `3`, `support`, `help` | Contact Support text | `support` |
-| `next` (only while browsing) | Next catalog page. On the last page: "this is the last page". | `catalog_page`, `catalog_edge` |
-| `previous`, `prev`, `back` (only while browsing) | Previous catalog page. On the first page: "this is the first page". | `catalog_page`, `catalog_edge` |
+| `1`, `products`, `product`, `catalog`, `পণ্য`, `পণ্য দেখুন`, `order`, `অর্ডার`, `view products` | The catalog, page 1 | `catalog` |
+| `2`, `my order information`, `order information`, `my orders`, `my order`, `আমার অর্ডার` | The customer's own latest 3 orders (id, product, quantity, total, status in Bangla; no phone or address), or "no orders yet" | `order_info` |
+| `3`, `support`, `help`, `সহায়তা` | Support text | `support` |
+| `next`, `পরের`, `পরবর্তী` (only while browsing) | Next catalog page. On the last page: "this is the last page". | `catalog_page`, `catalog_edge` |
+| `previous`, `prev`, `back`, `আগের`, `পূর্ববর্তী` (only while browsing) | Previous catalog page. On the first page: "this is the first page". | `catalog_page`, `catalog_edge` |
 | a product code: `P001`, `p001`, `order P001` | Starts an order for that product | `order_start` |
 | a code that does not exist, or a product that is not available | "Product not found", nothing changes | `product_not_found` |
 | anything else | "Sorry, I did not understand" plus the menu | `fallback` |
@@ -748,36 +752,41 @@ The whole message must match. Case, spaces and punctuation around it (`! . ? , ;
 
 | Step | Customer sends | Result | `rule` |
 | --- | --- | --- | --- |
-| `WAITING_FOR_QUANTITY` | a whole number from 1 to 100 | Saved, asks for the phone number | `quantity_ok` |
+| `WAITING_FOR_QUANTITY` | a whole number from 1 to 100 | Saved. A returning customer whose last order has a valid phone and address is offered both (`saved_details`); everyone else is asked for the phone number. | `saved_details`, `quantity_ok` |
 | | anything else | Asks again, nothing changes | `quantity_invalid` |
-| `WAITING_FOR_PHONE` | a valid Bangladesh mobile number | Saved (normalized), asks for the address | `phone_ok` |
+| `WAITING_FOR_SAVED_DETAILS` | `1`, `yes`, `হ্যাঁ`, or **✅ হ্যাঁ, এই তথ্য** | Uses the last phone and address, shows the order summary | `order_summary` |
+| | `2`, `no`, `না`, or **✏️ নতুন তথ্য দেব** | Asks for the phone number, with the last number as a **📱 01XXXXXXXXX** button | `new_details` |
+| | a phone number | Takes it and asks for the address (with the 🏠 button below) | `phone_ok` |
+| `WAITING_FOR_PHONE` | a valid Bangladesh mobile number, or the **📱** button (the last order's number) | Saved (normalized), asks for the address. A returning customer also gets a **🏠 আগের ঠিকানা** button with the last address shown. | `phone_ok` |
 | | anything else | Asks again with the accepted formats | `phone_invalid` |
-| `WAITING_FOR_ADDRESS` | 10 to 200 characters | Saved, shows the order summary with **Confirm** and **Cancel** buttons | `order_summary` |
+| `WAITING_FOR_ADDRESS` | 10 to 200 characters, or the **🏠 আগের ঠিকানা** button | Saved, shows the order summary with **✅ নিশ্চিত করুন** and **❌ বাতিল** buttons | `order_summary` |
 | | anything else | Asks again | `address_invalid` |
-| `WAITING_FOR_CONFIRMATION` | `1`, `confirm`, `yes`, `y`, `হ্যাঁ`, `হ্যা` | **Creates the order** | `order_confirmed` |
+| `WAITING_FOR_CONFIRMATION` | `1`, `confirm`, `yes`, `y`, `হ্যাঁ`, `হ্যা`, `নিশ্চিত` | **Creates the order** | `order_confirmed` |
 | | `2`, `no`, `n`, `না` | Cancels | `order_cancelled` |
-| | anything else | Asks to send 1 (Confirm) or 2 (Cancel) | `confirm_invalid` |
+| | anything else | Asks to send 1 (নিশ্চিত) or 2 (বাতিল) | `confirm_invalid` |
+
+So a returning customer can keep both details with one tap, or choose new details and still keep one of them: the 📱 button keeps the number and lets them type a new address, and typing a new number still offers the 🏠 button for the old address.
 
 The numbers mean different things at different steps, which is why there is a single rule: *the current step decides*.
 
 | Customer sends | At the menu | While asked for the quantity | At the order summary |
 | --- | --- | --- | --- |
-| `1` | View Products | quantity 1 | **Confirm** |
-| `2` | My Order Information | quantity 2 | Cancel |
-| `3` | Contact Support | quantity 3 | not an answer: asks for 1 or 2 again |
+| `1` | পণ্য দেখুন (products) | quantity 1 | **নিশ্চিত** (confirm) |
+| `2` | আমার অর্ডারের তথ্য (my orders) | quantity 2 | বাতিল (cancel) |
+| `3` | সহায়তা (support) | quantity 3 | not an answer: asks for 1 or 2 again |
 
 **Other messages and answers:**
 
 | Customer does | Result | `rule` |
 | --- | --- | --- |
-| Sends a photo, sticker, file or other attachment without text | "I only understand text messages for now" plus "type 1, 2 or 3". The order draft is not touched, and the attachment is never opened or downloaded. | `attachment` |
+| Sends a photo, sticker, like, file or other attachment without text | Outside an order: "I only understand text messages for now" plus the menu (`attachment`). In the middle of an order: "I can't read photos or stickers" and the current question again (`order_resumed`). The draft is never changed, and the attachment is never opened or downloaded. | `attachment`, `order_resumed` |
 | Sends text together with an attachment | Answered by its text, like any other message | (the text's rule) |
 | Taps a quick reply | The button's payload decides (next section); the title text is ignored | see payloads |
 | Types anything after 30 minutes without progress | A "session timed out" notice plus the menu, once (see "Session expiry" below) | `session_expired` |
-| Taps an old or foreign **Confirm** button | "This confirmation is no longer valid" plus a hint to type `menu` | `confirm_stale` |
+| Taps an old or foreign **Confirm** button | Outside an order: "This confirmation is no longer valid" plus a hint to type `মেনু`. In the middle of an order: the current question (or summary) again. | `confirm_stale`, `order_resumed` |
 | Taps **Confirm** for an order that already exists | "Already confirmed" plus the Order ID, no new order | `order_duplicate` |
 
-After an order is confirmed the session is clean again, so `1` means View Products once more. A product code typed in the middle of an order is treated as the answer to the current question (and rejected); use the **Order Now** button of another card, or type `menu` first, to switch products. Tapping a catalog page button (`Next ▶` or `◀ Previous` from an older message) in the middle of an order also drops that half-finished order.
+After an order is confirmed the session is clean again, so `1` means পণ্য দেখুন (products) once more. A product code typed in the middle of an order is treated as the answer to the current question (and rejected); use the **🛒 অর্ডার করুন** button of another card, or cancel first, to switch products. Tapping a catalog page button (`পরের ▶` or `◀ আগের` from an older message) in the middle of an order keeps that order and asks its current question again.
 
 ### Buttons and payloads
 
@@ -785,13 +794,16 @@ Buttons send a short payload back to the bot. Product cards and the order summar
 
 | Payload | Sent by | What the bot does |
 | --- | --- | --- |
-| `ORDER_PRODUCT:<id>` (for example `ORDER_PRODUCT:P001`) | **Order Now** on a product card | Starts a new order draft and asks for the quantity. Works from any step (an old card can be tapped any time) and replaces a draft in progress. An unknown or unavailable id gives `product_not_found`. |
-| `CATALOG_PAGE:<n>` | **◀ Previous** / **Next ▶** quick replies | Shows page `n` (a number outside the range is moved to the nearest valid page). |
-| `CONFIRM_ORDER:<draftId>` | **✅ Confirm** under the order summary | Creates the order if this is the customer's current draft. If that draft was already confirmed it replies "already confirmed" with the existing Order ID and creates nothing. Otherwise it replies that the confirmation is no longer valid. |
-| `CANCEL_ORDER` | **❌ Cancel** under the order summary | Same as typing `cancel`. |
-| `MENU` | **Menu** quick reply | Welcome message and menu, draft dropped. |
-| `GET_STARTED` | Messenger's Get Started button, if you set one up on the Page | Welcome message and menu. |
-| anything else | - | Welcome message and menu. |
+| `ORDER_PRODUCT:<id>` (for example `ORDER_PRODUCT:P001`) | **🛒 অর্ডার করুন** on a product card | Starts a new order draft and asks for the quantity. Works from any step (an old card can be tapped any time) and replaces a draft in progress. An unknown or unavailable id gives `product_not_found`. |
+| `CATALOG_PAGE:<n>` | **◀ আগের** / **পরের ▶** quick replies | Shows page `n` (a number outside the range is moved to the nearest valid page). In the middle of an order: the current question again. |
+| `CONFIRM_ORDER:<draftId>` | **✅ নিশ্চিত করুন** under the order summary | Creates the order if this is the customer's current draft. If that draft was already confirmed it replies "already confirmed" with the existing Order ID and creates nothing. Otherwise: in the middle of an order the current question again, else "this confirmation is no longer valid". |
+| `CANCEL_ORDER` | **❌ বাতিল** under every order question | Same as typing `cancel`. |
+| `USE_SAVED_DETAILS` / `NEW_DETAILS` | **✅ হ্যাঁ, এই তথ্য** / **✏️ নতুন তথ্য দেব** | Use the last phone and address / ask for new ones (see the table above). |
+| `USE_SAVED_PHONE` | **📱 01XXXXXXXXX** under the phone question | Uses the last order's number and asks for the address. |
+| `USE_SAVED_ADDRESS` | **🏠 আগের ঠিকানা** under the address question | Uses the last order's address and shows the summary. |
+| `MENU` | **🏠 মেনু** quick reply | Welcome message and menu. In the middle of an order: the current question again. |
+| `GET_STARTED` | Messenger's Get Started button | Welcome message and menu (in the middle of an order: the current question again). |
+| anything else | - | Welcome message and menu (in the middle of an order: the current question again). |
 
 The `GET_STARTED` payload is understood, but this backend does not create the button on the Page (see "Product links for Facebook posts" below for the one-time setup). Quick replies normally disappear after they were used, so a customer who wants another page later types `1` or `next`.
 
@@ -803,7 +815,7 @@ Share one link per product in a post:
 https://m.me/<PAGE_USERNAME>?ref=ORDER_PRODUCT:P001
 ```
 
-`<PAGE_USERNAME>` is the Page's username (the part after `facebook.com/`). When a customer taps the link, Messenger opens the chat with the Page and the bot answers as if **Order Now** had been tapped on that product, with one difference: the customer never saw the product's card, so the bot first sends the product photo, then asks for the quantity. It replaces a draft in progress. An unknown or unavailable id gives `product_not_found`. If Meta cannot load the photo, the question is sent without it and the log shows `[SendAPI] Product photo failed, text sent without it`.
+`<PAGE_USERNAME>` is the Page's username (the part after `facebook.com/`). When a customer taps the link, Messenger opens the chat with the Page and the bot answers as if **🛒 অর্ডার করুন** had been tapped on that product, with one difference: the customer never saw the product's card, so the bot first sends the product photo, then asks for the quantity. It replaces a draft in progress. An unknown or unavailable id gives `product_not_found`. If Meta cannot load the photo, the question is sent without it and the log shows `[SendAPI] Product photo failed, text sent without it`.
 
 - **A customer who already chatted with the Page**: Messenger sends a `messaging_referrals` event as soon as the chat opens. Subscribe that field (section 8).
 - **A new customer** first sees the Page's **Get Started** button. Tapping it sends the `GET_STARTED` postback together with the link's ref, and the linked product wins over the welcome menu. Without a Get Started button on the Page, new customers lose the ref.
@@ -819,24 +831,31 @@ curl -X POST "https://graph.facebook.com/v26.0/me/messenger_profile" -H "Content
 
 ```
  From ANY step:
-   menu / hi / MENU / GET_STARTED   ->  IDLE, welcome message (draft dropped)
-   cancel / CANCEL_ORDER            ->  IDLE, "order cancelled" + menu (draft dropped)
-   Order Now (ORDER_PRODUCT:<id>)   ->  WAITING_FOR_QUANTITY (new draft)
+   cancel / বাতিল / CANCEL_ORDER    ->  IDLE, "order cancelled" + menu (draft dropped)
+   🛒 অর্ডার করুন (ORDER_PRODUCT)   ->  WAITING_FOR_QUANTITY (new draft)
+   menu / hi / MENU / GET_STARTED   ->  IDLE + welcome, but in a WAITING step: same step,
+   old buttons, photos, stickers         the current question asked again (draft kept)
 
-   IDLE ---- 1 / View Products ----> BROWSING_PRODUCTS --+
+   IDLE ---- 1 / পণ্য দেখুন ----> BROWSING_PRODUCTS --+
      |                                    |   ^          | next, previous,
      |                                    |   +----------+ Next / Previous buttons
      | P001                               | P001
      v                                    v
    WAITING_FOR_QUANTITY  (quantity 1..100)
-     v
-   WAITING_FOR_PHONE  (valid Bangladesh mobile number)
-     v
-   WAITING_FOR_ADDRESS  (10-200 characters)
+     |                \  returning customer
+     |                 v
+     |               WAITING_FOR_SAVED_DETAILS --- 1 / ✅ (last phone + address) ---+
+     |                 | 2 / ✏️ new details                                        |
+     v                 v                                                           |
+   WAITING_FOR_PHONE  (valid Bangladesh mobile number, or 📱 last number)          |
+     v                                                                             |
+   WAITING_FOR_ADDRESS  (10-200 characters, or 🏠 last address)                    |
+     v                                                                             |
+     +<----------------------------------------------------------------------------+
      v
    WAITING_FOR_CONFIRMATION  (order summary shown)
      |                         |
-     | 1 / yes / Confirm       | 2 / no / Cancel
+     | 1 / yes / ✅ নিশ্চিত     | 2 / no / ❌ বাতিল
      v                         v
    ORDER CREATED -> IDLE     IDLE
 
@@ -856,9 +875,9 @@ A rejected answer never changes the order draft: the bot says what was wrong and
 
 ### Orders are created only at confirmation
 
-Choosing a product, the quantity, the phone number and the address only fill in a **draft** in the customer's session. **An order is created only when the customer confirms** (typing `1` / `confirm` / `yes`, or tapping ✅ Confirm). At that moment the order copies the product's name and price (a snapshot) and the customer gets `✅ আপনার অর্ডার নিশ্চিত হয়েছে!` with the Order ID and total. Delivery charge is not calculated (the texts say so).
+Choosing a product, the quantity, the phone number and the address only fill in a **draft** in the customer's session. **An order is created only when the customer confirms** (typing `1` / `confirm` / `yes`, or tapping ✅ নিশ্চিত করুন). At that moment the order copies the product's name and price (a snapshot) and the customer gets `✅ আপনার অর্ডার নিশ্চিত হয়েছে!` with the Order ID and total. Delivery charge is not calculated (the texts say so).
 
-**What a duplicate confirm does:** each order summary has its own one-time draft id, and the order store refuses to create a second order for the same draft id. If the customer taps ✅ Confirm twice, confirms by text and then by button, or Meta delivers the same tap twice, there is exactly one order. Every extra confirm gets `এই অর্ডারটি ইতিমধ্যে নিশ্চিত করা হয়েছে।` and the same Order ID. A Confirm button that belongs to a cancelled, replaced, expired or unknown draft (or someone else's) answers "this confirmation is no longer valid" and creates nothing. If the product disappeared or became unavailable before the customer confirmed, the order is cancelled with an apology.
+**What a duplicate confirm does:** each order summary has its own one-time draft id, and the order store refuses to create a second order for the same draft id. If the customer taps ✅ নিশ্চিত করুন twice, confirms by text and then by button, or Meta delivers the same tap twice, there is exactly one order. Every extra confirm gets `এই অর্ডারটি ইতিমধ্যে নিশ্চিত করা হয়েছে।` and the same Order ID. A Confirm button that belongs to a cancelled, replaced, expired or unknown draft (or someone else's) answers "this confirmation is no longer valid" and creates nothing. If the product disappeared or became unavailable before the customer confirmed, the order is cancelled with an apology.
 
 ### Session expiry (30 minutes)
 
@@ -881,11 +900,11 @@ P001 – Red Banarasi Style Silk Saree – ৳6200
 অর্ডার করতে পণ্যের কোড লিখুন (যেমন: P001)।
 ```
 
-The customer orders by typing a product code. The text list carries the same Next / Previous / Menu buttons, and the log gets `[SendAPI] Catalog template failed, text fallback used`. This fallback happens only when Meta rejected the template itself. After a timeout, a network error, an invalid or expired token, a rate limit, an expired messaging window or an unavailable recipient, the failure is simply logged: the first attempt may already have been delivered, or the text would fail the same way, so a fallback could only create duplicates or more errors. The order summary has the same rule: if the button template is rejected it is sent as plain text, and the customer answers `1` or `2`. A summary longer than 640 characters (a very long address) is also sent as plain text.
+The customer orders by typing a product code. The text list carries the same পরের / আগের / মেনু buttons, and the log gets `[SendAPI] Catalog template failed, text fallback used`. This fallback happens only when Meta rejected the template itself. After a timeout, a network error, an invalid or expired token, a rate limit, an expired messaging window or an unavailable recipient, the failure is simply logged: the first attempt may already have been delivered, or the text would fail the same way, so a fallback could only create duplicates or more errors. The order summary has the same rule: if the button template is rejected it is sent as plain text, and the customer answers `1` or `2`. A summary longer than 640 characters (a very long address) is also sent as plain text.
 
 ### Customer texts
 
-All wording (Bangla, with English menu labels) is in `src/services/replyTexts.js`. If you edit it, keep each text under 2000 characters (the Send API limit), and keep the words the bot understands (`1`, `2`, `3`, `menu`, `cancel`, `next`) in the texts that mention them. `test/replyTexts.test.js` checks the approved wording and will tell you when a text changed.
+All wording is Bangla and lives in `src/services/replyTexts.js` (button labels too; the card and catalog buttons are in `messengerService.js`). Product names, prices and order ids are shown as stored. If you edit it, keep each text under 2000 characters (the Send API limit), each button label under 20, and keep the words the bot understands (`1`, `2`, `3`, `মেনু`, `বাতিল`, `পরের`, `আগের`) in the texts that mention them. `test/replyTexts.test.js` checks the approved wording and will tell you when a text changed.
 
 ## 16. Orders API (admin)
 
@@ -1008,15 +1027,15 @@ Checklist:
    Expect `200` and the body `CHALLENGE_ACCEPTED`. A request with a wrong signature must still give `403` (section 9) and must never cause a `[Messenger]` or `[SendAPI]` line.
 
 3. **Welcome.** From the Tester account send `Hi`. Within a few seconds the Page replies with the welcome message and the three-line menu. The log shows the five lines from section 12 with `"rule":"welcome"`.
-4. **Product cards.** Send `1`. You get a carousel of **5 product cards** (image, `Name – ৳Price`, a short description and an **Order Now** button), then a message `🛍️ পণ্য তালিকা – পৃষ্ঠা 1/10` with the quick replies `Next ▶` and `Menu` (no Previous on page 1). Rule: `catalog`.
+4. **Product cards.** Send `1`. You get a carousel of **5 product cards** (image, `Name – ৳Price`, a short description and an **🛒 অর্ডার করুন** button), then a message `🛍️ পণ্য তালিকা – পৃষ্ঠা 1/10` with the quick replies `পরের ▶` and `🏠 মেনু` (no Previous on page 1). Rule: `catalog`.
 
    ```
    [AutoReply] Matching reply rule {"rule":"catalog","step":"BROWSING_PRODUCTS"}
    [SendAPI] Reply sent successfully {"senderId":"…1111","rule":"catalog","messageId":"m_FAKE_REPLY_ID_2","mode":"template"}
    ```
 
-5. **Next page.** Tap `Next ▶` (or type `next`). Page 2 of 10 appears, now with `◀ Previous`, `Next ▶` and `Menu`. Rule: `catalog_page`. `Previous` returns to page 1.
-6. **Order Now.** Tap **Order Now** on a card. The bot names the product and price and asks `কয়টি পিস অর্ডার করবেন?`. Rule: `order_start`. **No order exists yet**: `GET /api/orders` (step 12) is still empty. The log shows the button tap as a postback, never its payload value:
+5. **Next page.** Tap `পরের ▶` (or type `next`). Page 2 of 10 appears, now with `◀ আগের`, `পরের ▶` and `🏠 মেনু`. Rule: `catalog_page`. `◀ আগের` returns to page 1.
+6. **🛒 অর্ডার করুন.** Tap **🛒 অর্ডার করুন** on a card. The bot names the product and price and asks `কয়টি পিস অর্ডার করবেন?`. Rule: `order_start`. **No order exists yet**: `GET /api/orders` (step 12) is still empty. The log shows the button tap as a postback, never its payload value:
 
    ```
    [webhook] event {"type":"postback","pageId":"1234567890","senderId":"…1111","mid":"m_FAKE_POSTBACK_ID_4","hasPayload":true,"timestamp":1700000000003}
@@ -1026,8 +1045,8 @@ Checklist:
 
 7. **Quantity.** Send `2`. The bot asks for your mobile number. Rule: `quantity_ok`.
 8. **Phone.** Send `01712345678` (any valid Bangladesh mobile format). The bot asks for the delivery address. Rule: `phone_ok`.
-9. **Address and summary.** Send an address such as `House 12, Road 3, Tangail Sadar`. The bot shows the summary (product, quantity 2, unit price, subtotal, phone, address, `Delivery charge: Not calculated`) with the buttons **✅ Confirm** and **❌ Cancel**. Rule: `order_summary`. Still no order.
-10. **Confirm.** Tap **✅ Confirm** (or send `1`). You get `✅ আপনার অর্ডার নিশ্চিত হয়েছে!` with `Order ID: ORD-1001` and the total. Rule: `order_confirmed`.
+9. **Address and summary.** Send an address such as `House 12, Road 3, Tangail Sadar`. The bot shows the summary (product, quantity 2, unit price, subtotal, phone, address, `ডেলিভারি চার্জ: এখনো যোগ করা হয়নি`) with the buttons **✅ নিশ্চিত করুন** and **❌ বাতিল**. Rule: `order_summary`. Still no order.
+10. **Confirm.** Tap **✅ নিশ্চিত করুন** (or send `1`). You get `✅ আপনার অর্ডার নিশ্চিত হয়েছে!` with `অর্ডার আইডি: ORD-1001` and the total. Rule: `order_confirmed`.
 11. **Order saved (logs).** The server log has exactly one `[Order] Order created` line with the order id, product id, quantity and subtotal. The line has no phone number, address or customer ID:
 
     ```
@@ -1045,16 +1064,16 @@ Checklist:
 
     On a freshly started server expect `count` 1 and your order with the phone number normalized to `01712345678`, status `pending`. Optional: change it with the `PATCH` command from section 16, then send `2` to the Page: the bot lists your latest orders with the new status.
 
-13. **Duplicate confirm creates one order.** Scroll up in Messenger and tap **✅ Confirm** on the same summary again (tap it several times if you like). Each tap is answered with `এই অর্ডারটি ইতিমধ্যে নিশ্চিত করা হয়েছে।` and the same Order ID, with rule `order_duplicate`. Run the command of step 12 again: `count` is still 1. (Sending `1` as text is not a repeat: once the order is done, `1` means View Products.)
+13. **Duplicate confirm creates one order.** Scroll up in Messenger and tap **✅ নিশ্চিত করুন** on the same summary again (tap it several times if you like). Each tap is answered with `এই অর্ডারটি ইতিমধ্যে নিশ্চিত করা হয়েছে।` and the same Order ID, with rule `order_duplicate`. Run the command of step 12 again: `count` is still 1. (Sending `1` as text is not a repeat: once the order is done, `1` means পণ্য দেখুন (products).)
 
     ```
     [AutoReply] Matching reply rule {"rule":"order_duplicate","step":"IDLE"}
     ```
 
 14. **Duplicate protection on replay.** In the ngrok inspector (<http://127.0.0.1:4040>) open the `POST /api/webhooks/facebook` request of your first **Confirm** tap and click **Replay** twice. Both replays return `200` and log `[Messenger] Ignored event {"reason":"duplicate"}`; nothing new arrives in Messenger and `count` stays 1. (Replaying the *same tap* after a server restart would find no draft and no order, because everything is in memory, and the bot would answer that the confirmation is no longer valid.)
-15. **Invalid quantity.** Tap **Order Now** on a card and answer the quantity question with `abc`, then `0`, then `101`, then `2.5`. Each time the bot says to enter a number from 1 to 100 (rule `quantity_invalid`) and the step does not change. Then send `3` to continue.
+15. **Invalid quantity.** Tap **🛒 অর্ডার করুন** on a card and answer the quantity question with `abc`, then `0`, then `101`, then `2.5`. Each time the bot says to enter a number from 1 to 100 (rule `quantity_invalid`) and the step does not change. Then send `3` to continue.
 16. **Invalid phone and address.** At the phone question send `12345` and `01212345678` (operator code 012 is not allowed): rejected with the accepted formats (rule `phone_invalid`). Send `+8801712345678`: accepted. At the address question send `Dhaka` (too short): rejected (rule `address_invalid`). No order is created by any of this.
-17. **Cancel resets.** During an unfinished order send `cancel` (or tap **❌ Cancel** on a summary). The bot answers `❌ অর্ডার বাতিল করা হয়েছে।` with the menu (rule `order_cancelled`). Send `1` and pick a product again: the questions start from the quantity, nothing from the cancelled draft remains, and `GET /api/orders` shows no new order.
+17. **Cancel resets.** During an unfinished order send `cancel` (or tap **❌ বাতিল** on a summary). The bot answers `❌ অর্ডার বাতিল করা হয়েছে।` with the menu (rule `order_cancelled`). Send `1` and pick a product again: the questions start from the quantity, nothing from the cancelled draft remains, and `GET /api/orders` shows no new order.
 18. **Two testers are isolated.** Use a second account with a role on the app. Put tester A at the phone question and tester B at the quantity question, then answer alternately. Each one is asked only their own next question, B's phone number never shows up in A's summary, and when both confirm there are two separate orders (check `GET /api/orders`). Sending `2` shows each tester only their own orders.
 19. **Echo filtering prevents loops.** The Page's reply must not be answered again, so you see exactly one reply per message you send. If `message_echoes` is subscribed (section 8), each reply comes back to the webhook as an echo: the log shows a `[webhook] event` line with `"type":"echo"` followed by `[Messenger] Ignored event` with `"reason":"self_sender"` (or `"echo"`), and no new `[SendAPI]` line. If `message_echoes` is not subscribed, echoes never arrive at all, which is also fine.
 20. **Session expiry (optional, takes 30 minutes).** Start an order, stop after the quantity, wait 30 minutes, then send anything other than `menu`. You get the `session_expired` notice (`⏳ আপনার আগের সেশনের সময় শেষ হয়ে গেছে।`) and the menu, and the draft is gone. Server logs show rule `session_expired`.
@@ -1123,7 +1142,7 @@ First stop: read the reason code in your server log (`[webhook] ... rejected: <r
 | `404` (`unsupported_object`) with a valid signature | `object` is not `page` (for example the app is subscribed to another product) | Subscribe the **Page** object. This backend handles Page events only. |
 | `413` `{"success":false,"message":"Payload too large"}` | Body is larger than 1 MB (webhook) or 10 KB (`/api/orders`) | Not expected from Meta. Check what is sending the request. |
 | Verification works, but no events arrive | The Page is not connected to the app, fields are not subscribed, the sender has no role on the app (Development mode), or you messaged a different Page | Connect and subscribe the Page (section 8), subscribe `messages` and `messaging_postbacks`, message the Page from an admin/developer/tester account, and check the ngrok inspector to see whether Meta's request arrives at all. |
-| Typed messages work, but **Order Now**, **Confirm** or **Cancel** do nothing (no `"type":"postback"` line in the log, and no postback `POST` in the ngrok inspector) | The app is not subscribed to `messaging_postbacks` for the Page | Subscribe the `messaging_postbacks` field (section 8; the dashboard labels may differ) and tap the button again. Meanwhile customers can type a product code such as `P001`, and `1` to confirm. |
+| Typed messages work, but **🛒 অর্ডার করুন**, **Confirm** or **Cancel** do nothing (no `"type":"postback"` line in the log, and no postback `POST` in the ngrok inspector) | The app is not subscribed to `messaging_postbacks` for the Page | Subscribe the `messaging_postbacks` field (section 8; the dashboard labels may differ) and tap the button again. Meanwhile customers can type a product code such as `P001`, and `1` to confirm. |
 | Events arrive (`[webhook] event` lines) but the Page does not reply | Auto-reply is off, the event is filtered, or the Send API call failed | Follow the last `[Messenger]` / `[SendAPI]` line in section 20. |
 | Meta retries or disables the webhook | Meta expects a quick `200` response. After repeated failures it retries, sends alerts, and can stop delivering events or unsubscribe the app from the Page. | Fix the cause, then re-subscribe the Page and fields in the dashboard. |
 | Visiting the ngrok URL in a browser shows an ngrok warning page | ngrok's browser interstitial on free accounts | It only affects browsers. Meta's server calls and `curl` are not affected. Click through, or test with `curl`. |
@@ -1171,7 +1190,7 @@ Find the last log line for the message you sent, then use the matching row.
 | The bot answers `এই কনফার্মেশনটি আর বৈধ নয়` when you tap Confirm | The draft was cancelled, replaced by a newer one, expired, or the server restarted since the summary was shown | Start again with `menu`. This is why a button can never create a wrong or second order. |
 | The bot says the quantity is invalid when you type `1` or `menu`-like words | You are in the middle of an order: at the quantity question `1` means quantity 1; `menu` and `cancel` always work | Type `menu` or `cancel` to leave the order, or answer the question. |
 | Orders disappeared | The server restarted (a deploy, a crash, nodemon after a code change, or stopping and starting it). Orders and sessions are only in memory. | Expected in this phase. Use `pnpm start` for tests, and move orders to a database before going live. |
-| **Order Now** / **Confirm** do nothing | The app is not subscribed to `messaging_postbacks` | Section 8 and the postback row in section 19. |
+| **🛒 অর্ডার করুন** / **Confirm** do nothing | The app is not subscribed to `messaging_postbacks` | Section 8 and the postback row in section 19. |
 | The customer was not told that their order status changed | By design: `PATCH /api/orders/:id/status` only changes the stored status. Nothing is sent proactively because of Meta's 24-hour window. | The customer sees the status when they send `2`. Contact them yourself (section 13 explains the rules). |
 
 **`[SendAPI] Reply failed`:** `reason` says what kind of failure it is. For `graph_error` (Meta answered with an error) the log also has `code`, `subcode`, `hint` and `fbtraceId`.

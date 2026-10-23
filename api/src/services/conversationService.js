@@ -21,15 +21,25 @@ import * as texts from './replyTexts.js';
 
 const words = (...list) => new Set(list.map(normalizeText));
 
-const CANCEL_WORDS = words('cancel', 'বাতিল');
+const CANCEL_WORDS = words('cancel', 'cancel order', 'delete', 'বাতিল', 'বাতিল করুন');
 const MENU_WORDS = words('menu', 'মেনু', 'hi', 'hello', 'hey', 'start', 'হাই', 'হ্যালো');
-const CONFIRM_WORDS = words('1', 'confirm', 'yes', 'y', 'হ্যাঁ', 'হ্যা');
+const CONFIRM_WORDS = words('1', 'confirm', 'yes', 'y', 'হ্যাঁ', 'হ্যা', 'নিশ্চিত');
 const DECLINE_WORDS = words('2', 'no', 'n', 'না');
-const CATALOG_WORDS = words('1', 'products', 'product', 'catalog', 'পণ্য', 'order', 'অর্ডার', 'view products');
-const ORDER_INFO_WORDS = words('2', 'my order information', 'order information', 'my orders', 'my order');
-const SUPPORT_WORDS = words('3', 'support', 'help');
-const NEXT_WORDS = words('next');
-const PREVIOUS_WORDS = words('previous', 'prev', 'back');
+const CATALOG_WORDS = words(
+  '1',
+  'products',
+  'product',
+  'catalog',
+  'পণ্য',
+  'পণ্য দেখুন',
+  'order',
+  'অর্ডার',
+  'view products',
+);
+const ORDER_INFO_WORDS = words('2', 'my order information', 'order information', 'my orders', 'my order', 'আমার অর্ডার');
+const SUPPORT_WORDS = words('3', 'support', 'help', 'সহায়তা');
+const NEXT_WORDS = words('next', 'পরের', 'পরবর্তী');
+const PREVIOUS_WORDS = words('previous', 'prev', 'back', 'আগের', 'পূর্ববর্তী');
 
 const PRODUCT_CODE = /^(?:order )?(p\d{1,5})$/;
 const RECENT_ORDERS_LIMIT = 3;
@@ -37,10 +47,26 @@ const RECENT_ORDERS_LIMIT = 3;
 // Everything a half-finished order stores in the session.
 const NO_DRAFT = { productId: null, quantity: null, phone: null, address: null, draftId: null };
 
+// The steps of an order in progress. In them only an answer to the current question, Cancel or
+// choosing another product changes the order; anything else asks the question again (resume).
+const ORDER_STEPS = new Set([
+  STEPS.WAITING_FOR_QUANTITY,
+  STEPS.WAITING_FOR_SAVED_DETAILS,
+  STEPS.WAITING_FOR_PHONE,
+  STEPS.WAITING_FOR_ADDRESS,
+  STEPS.WAITING_FOR_CONFIRMATION,
+]);
+const isOrdering = (session) => ORDER_STEPS.has(session.step);
+
 const textReply = (rule, text, extra) => ({ kind: 'text', rule, text, ...extra });
 const menuReply = (rule, text) => textReply(rule, text, { quickReplies: quick.MENU });
 const isId = (value) => typeof value === 'string' && value !== '';
 const newDraftId = () => randomUUID().replaceAll('-', '').slice(0, 16);
+
+const phoneQuestion = (rule, previousPhone) =>
+  textReply(rule, texts.askPhone(previousPhone), { quickReplies: quick.phone(previousPhone) });
+const addressQuestion = (rule, previousAddress) =>
+  textReply(rule, texts.askAddress(previousAddress), { quickReplies: quick.address(previousAddress) });
 
 export function createConversationService({
   sessions = sessionStore,
@@ -68,13 +94,21 @@ export function createConversationService({
     return [menuReply('session_expired', texts.SESSION_EXPIRED)];
   }
 
-  function support() {
-    return [menuReply('support', texts.SUPPORT)];
+  // An answer that is not part of the order (My orders, Support). Outside an order it comes with
+  // the menu buttons; in the middle of one, the current question follows instead.
+  async function infoReply(ctx, rule, text) {
+    if (!isOrdering(ctx.session)) return [menuReply(rule, text)];
+    return [textReply(rule, text), ...(await resume(ctx))];
   }
 
-  // A quick reply that belongs to an earlier step (Messenger can still show it after a restart).
+  function support(ctx) {
+    return infoReply(ctx, 'support', texts.SUPPORT);
+  }
+
+  // A button from an earlier step (Messenger can still show it after a restart).
   function inStep(ctx, step, run) {
-    return ctx.session.step === step ? run() : [menuReply('button_stale', texts.BUTTON_STALE)];
+    if (ctx.session.step === step) return run();
+    return isOrdering(ctx.session) ? resume(ctx) : [menuReply('button_stale', texts.BUTTON_STALE)];
   }
 
   // --- catalog ---
@@ -105,8 +139,9 @@ export function createConversationService({
   }
 
   // --- collecting the order: choose product -> quantity -> phone -> address -> confirm ---
-  // A returning customer skips phone and address: after the quantity they are offered the
-  // ones from their last order.
+  // A returning customer is offered the phone and address of their last order together after
+  // the quantity. Choosing new details still offers each of them on its own (📱 / 🏠 buttons),
+  // so the customer can keep one and change the other.
 
   // Choosing a product only starts a draft. No order exists until the customer confirms.
   // A customer who came through a product link has not seen the product's card, so the question
@@ -120,12 +155,10 @@ export function createConversationService({
     return [withPhoto ? { ...reply, kind: 'text_with_photo', imageUrl: product.imageUrl } : reply];
   }
 
-  // The phone and address of the customer's last order, when both are still valid.
-  async function savedDetailsOf(psid) {
+  // The phone and address of the customer's last order, each null when missing or no longer valid.
+  async function previousDetailsOf(psid) {
     const [last] = await orders.listByCustomer(psid, { limit: 1 });
-    const phone = normalizeBdPhone(last?.phone);
-    const address = parseAddress(last?.address);
-    return phone && address ? { phone, address } : null;
+    return { phone: normalizeBdPhone(last?.phone), address: parseAddress(last?.address) };
   }
 
   async function takeQuantity({ key, psid }, raw) {
@@ -134,13 +167,13 @@ export function createConversationService({
       return [textReply('quantity_invalid', texts.QUANTITY_INVALID, { quickReplies: quick.QUANTITY })];
     }
 
-    const saved = await savedDetailsOf(psid);
-    if (saved) {
-      await sessions.update(key, { step: STEPS.WAITING_FOR_SAVED_DETAILS, quantity, ...saved });
-      return [textReply('saved_details', texts.savedDetails(saved), { quickReplies: quick.SAVED_DETAILS })];
+    const previous = await previousDetailsOf(psid);
+    if (previous.phone && previous.address) {
+      await sessions.update(key, { step: STEPS.WAITING_FOR_SAVED_DETAILS, quantity, ...previous });
+      return [textReply('saved_details', texts.savedDetails(previous), { quickReplies: quick.SAVED_DETAILS })];
     }
     await sessions.update(key, { step: STEPS.WAITING_FOR_PHONE, quantity });
-    return [textReply('quantity_ok', texts.ASK_PHONE, { quickReplies: quick.PHONE })];
+    return [phoneQuestion('quantity_ok', previous.phone)];
   }
 
   function useSavedDetails(ctx) {
@@ -148,9 +181,10 @@ export function createConversationService({
     return showSummary(ctx, { phone, address });
   }
 
-  async function askNewDetails({ key }) {
+  async function askNewDetails({ key, psid }) {
+    const previous = await previousDetailsOf(psid);
     await sessions.update(key, { step: STEPS.WAITING_FOR_PHONE, phone: null, address: null });
-    return [textReply('new_details', texts.ASK_PHONE, { quickReplies: quick.PHONE })];
+    return [phoneQuestion('new_details', previous.phone)];
   }
 
   function chooseSavedDetails(ctx, raw, t) {
@@ -163,21 +197,47 @@ export function createConversationService({
     ];
   }
 
-  async function takePhone({ key }, raw) {
+  async function takePhone({ key, psid }, raw) {
     const phone = normalizeBdPhone(raw);
-    if (phone === null) return [textReply('phone_invalid', texts.PHONE_INVALID, { quickReplies: quick.PHONE })];
+    const previous = await previousDetailsOf(psid);
+    if (phone === null) {
+      return [textReply('phone_invalid', texts.PHONE_INVALID, { quickReplies: quick.phone(previous.phone) })];
+    }
 
     await sessions.update(key, { step: STEPS.WAITING_FOR_ADDRESS, phone });
-    return [textReply('phone_ok', texts.ASK_ADDRESS, { quickReplies: quick.ADDRESS })];
+    return [addressQuestion('phone_ok', previous.address)];
   }
 
-  function takeAddress(ctx, raw) {
+  // The 📱 button: the number of the last order (asked again if it is gone in the meantime).
+  async function usePreviousPhone(ctx) {
+    const { phone } = await previousDetailsOf(ctx.psid);
+    return phone ? takePhone(ctx, phone) : resume(ctx);
+  }
+
+  async function takeAddress(ctx, raw) {
     const address = parseAddress(raw);
     if (address === null) {
-      return [textReply('address_invalid', texts.ADDRESS_INVALID, { quickReplies: quick.ADDRESS })];
+      const previous = await previousDetailsOf(ctx.psid);
+      return [textReply('address_invalid', texts.ADDRESS_INVALID, { quickReplies: quick.address(previous.address) })];
     }
     return showSummary(ctx, { phone: ctx.session.phone, address });
   }
+
+  // The 🏠 button: the address of the last order (asked again if it is gone in the meantime).
+  async function usePreviousAddress(ctx) {
+    const { address } = await previousDetailsOf(ctx.psid);
+    return address ? showSummary(ctx, { phone: ctx.session.phone, address }) : resume(ctx);
+  }
+
+  const summaryOf = (product, quantity, { phone, address }) =>
+    texts.orderSummary({
+      name: product.name,
+      quantity,
+      unitPrice: product.price,
+      subtotal: product.price * quantity,
+      phone,
+      address,
+    });
 
   async function showSummary({ key, session }, { phone, address }) {
     const product = availableProduct(session.productId);
@@ -185,14 +245,7 @@ export function createConversationService({
 
     const draftId = newDraftId();
     await sessions.update(key, { step: STEPS.WAITING_FOR_CONFIRMATION, phone, address, draftId });
-    const summary = texts.orderSummary({
-      name: product.name,
-      quantity: session.quantity,
-      unitPrice: product.price,
-      subtotal: product.price * session.quantity,
-      phone,
-      address,
-    });
+    const summary = summaryOf(product, session.quantity, { phone, address });
     return [{ kind: 'order_confirmation', rule: 'order_summary', text: summary, draftId }];
   }
 
@@ -247,20 +300,56 @@ export function createConversationService({
     }
     const existing = isId(draftId) ? await orders.findByIdempotencyKey(draftId) : null;
     if (existing && existing.customerPsid === psid) return [orderDuplicate(existing)];
-    return [menuReply('confirm_stale', texts.CONFIRM_STALE)];
+    return isOrdering(session) ? resume(ctx) : [menuReply('confirm_stale', texts.CONFIRM_STALE)];
+  }
+
+  // --- keeping an order in progress ---
+
+  // Mid-order, anything that is not an answer to the current question (a greeting, Menu, an old
+  // button, a sticker) keeps the draft and asks the current question again under `note`.
+  // Only Cancel, or choosing another product, ends the draft.
+  async function resume(ctx, note = texts.ORDER_IN_PROGRESS) {
+    const { key, psid, session } = ctx;
+    const product = availableProduct(session.productId);
+    if (!product) return unavailableProduct(key);
+
+    const again = (question, quickReplies) =>
+      textReply('order_resumed', texts.resumed(note, question), { quickReplies });
+
+    switch (session.step) {
+      case STEPS.WAITING_FOR_QUANTITY:
+        return [again(texts.orderStart(product), quick.QUANTITY)];
+      case STEPS.WAITING_FOR_SAVED_DETAILS:
+        return [again(texts.savedDetails(session), quick.SAVED_DETAILS)];
+      case STEPS.WAITING_FOR_PHONE: {
+        const previous = await previousDetailsOf(psid);
+        return [again(texts.askPhone(previous.phone), quick.phone(previous.phone))];
+      }
+      case STEPS.WAITING_FOR_ADDRESS: {
+        const previous = await previousDetailsOf(psid);
+        return [again(texts.askAddress(previous.address), quick.address(previous.address))];
+      }
+      default: {
+        // WAITING_FOR_CONFIRMATION: the same draft id, so the Confirm button keeps working.
+        const summary = summaryOf(product, session.quantity, session);
+        return [
+          { kind: 'order_confirmation', rule: 'order_resumed', text: texts.resumed(note, summary), draftId: session.draftId },
+        ];
+      }
+    }
   }
 
   // --- the main menu (IDLE and BROWSING_PRODUCTS) ---
 
-  async function showOrders({ psid }) {
-    const recent = await orders.listByCustomer(psid, { limit: RECENT_ORDERS_LIMIT });
-    return [menuReply('order_info', texts.orderInfo(recent))];
+  async function showOrders(ctx) {
+    const recent = await orders.listByCustomer(ctx.psid, { limit: RECENT_ORDERS_LIMIT });
+    return infoReply(ctx, 'order_info', texts.orderInfo(recent));
   }
 
   function menuChoice(ctx, raw, t) {
     if (CATALOG_WORDS.has(t)) return showCatalog(ctx, 1, 'catalog');
     if (ORDER_INFO_WORDS.has(t)) return showOrders(ctx);
-    if (SUPPORT_WORDS.has(t)) return support();
+    if (SUPPORT_WORDS.has(t)) return support(ctx);
 
     if (ctx.session.step === STEPS.BROWSING_PRODUCTS) {
       if (NEXT_WORDS.has(t)) return turnPage(ctx, 1);
@@ -290,7 +379,7 @@ export function createConversationService({
       case PAYLOAD_TYPES.ORDER_PRODUCT:
         return startOrder(ctx, parsed.arg, { withPhoto: fromLink });
       case PAYLOAD_TYPES.CATALOG_PAGE:
-        return showCatalog(ctx, Number(parsed.arg), 'catalog_page');
+        return isOrdering(ctx.session) ? resume(ctx) : showCatalog(ctx, Number(parsed.arg), 'catalog_page');
       case PAYLOAD_TYPES.CONFIRM_ORDER:
         return confirmByPayload(ctx, parsed.arg);
       case PAYLOAD_TYPES.CANCEL_ORDER:
@@ -298,15 +387,19 @@ export function createConversationService({
       case PAYLOAD_TYPES.MY_ORDERS:
         return showOrders(ctx);
       case PAYLOAD_TYPES.SUPPORT:
-        return support();
+        return support(ctx);
       case PAYLOAD_TYPES.QUANTITY:
         return inStep(ctx, STEPS.WAITING_FOR_QUANTITY, () => takeQuantity(ctx, parsed.arg ?? ''));
       case PAYLOAD_TYPES.USE_SAVED_DETAILS:
         return inStep(ctx, STEPS.WAITING_FOR_SAVED_DETAILS, () => useSavedDetails(ctx));
       case PAYLOAD_TYPES.NEW_DETAILS:
         return inStep(ctx, STEPS.WAITING_FOR_SAVED_DETAILS, () => askNewDetails(ctx));
+      case PAYLOAD_TYPES.USE_SAVED_PHONE:
+        return inStep(ctx, STEPS.WAITING_FOR_PHONE, () => usePreviousPhone(ctx));
+      case PAYLOAD_TYPES.USE_SAVED_ADDRESS:
+        return inStep(ctx, STEPS.WAITING_FOR_ADDRESS, () => usePreviousAddress(ctx));
       default: // MENU, GET_STARTED and anything we do not recognise
-        return welcome(ctx);
+        return isOrdering(ctx.session) ? resume(ctx) : welcome(ctx);
     }
   }
 
@@ -314,11 +407,18 @@ export function createConversationService({
     const raw = typeof text === 'string' ? text : '';
     const t = normalizeText(raw);
     if (CANCEL_WORDS.has(t)) return cancel(ctx);
-    if (MENU_WORDS.has(t)) return welcome(ctx);
+    if (MENU_WORDS.has(t)) return isOrdering(ctx.session) ? resume(ctx) : welcome(ctx);
     if (ctx.session.expired) return sessionExpired();
 
     const stepHandler = STEP_HANDLERS[ctx.session.step];
     return stepHandler ? stepHandler(ctx, raw, t) : welcome(ctx);
+  }
+
+  // Photos, stickers, likes, voice notes: never opened or downloaded. In the middle of an order
+  // they repeat the current question; otherwise the bot explains that it reads text only.
+  function handleAttachment(ctx) {
+    if (isOrdering(ctx.session)) return resume(ctx, texts.ATTACHMENT_IN_ORDER);
+    return [menuReply('attachment', texts.ATTACHMENT)];
   }
 
   async function handle(request) {
@@ -333,6 +433,7 @@ export function createConversationService({
         return await handlePayload(ctx, input.payload, { fromLink: input.fromLink === true });
       }
       if (input?.type === 'text') return await handleText(ctx, input.text);
+      if (input?.type === 'attachment') return await handleAttachment(ctx);
       return [menuReply('fallback', texts.FALLBACK)];
     } catch {
       return [menuReply('fallback', texts.FALLBACK)];

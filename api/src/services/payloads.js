@@ -14,6 +14,8 @@ export const PAYLOAD_TYPES = Object.freeze({
   QUANTITY: 'QUANTITY', // QUANTITY:2
   USE_SAVED_DETAILS: 'USE_SAVED_DETAILS', // reuse the phone and address of the last order
   NEW_DETAILS: 'NEW_DETAILS',
+  USE_SAVED_PHONE: 'USE_SAVED_PHONE', // reuse only the phone of the last order
+  USE_SAVED_ADDRESS: 'USE_SAVED_ADDRESS', // reuse only the address of the last order
 });
 
 export const orderProductPayload = (productId) => `${PAYLOAD_TYPES.ORDER_PRODUCT}:${productId}`;
@@ -26,6 +28,8 @@ export const MY_ORDERS_PAYLOAD = PAYLOAD_TYPES.MY_ORDERS;
 export const SUPPORT_PAYLOAD = PAYLOAD_TYPES.SUPPORT;
 export const USE_SAVED_DETAILS_PAYLOAD = PAYLOAD_TYPES.USE_SAVED_DETAILS;
 export const NEW_DETAILS_PAYLOAD = PAYLOAD_TYPES.NEW_DETAILS;
+export const USE_SAVED_PHONE_PAYLOAD = PAYLOAD_TYPES.USE_SAVED_PHONE;
+export const USE_SAVED_ADDRESS_PAYLOAD = PAYLOAD_TYPES.USE_SAVED_ADDRESS;
 
 const MAX_PAYLOAD_LENGTH = 200;
 
