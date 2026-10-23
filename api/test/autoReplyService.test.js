@@ -181,6 +181,9 @@ describe('processEntries', () => {
     messageEvent({ mid: nextMid(), text, quick_reply: { payload } }, overrides);
   const postbackEvent = (payload, postback = {}, overrides = {}) =>
     baseEvent({ postback: { mid: nextMid(), title: 'a button', payload, ...postback }, ...overrides });
+  // What Messenger sends when someone opens the chat through https://m.me/<page>?ref=<ref>.
+  const linkReferral = (ref) => ({ ref, source: 'SHORTLINK', type: 'OPEN_THREAD' });
+  const referralEvent = (ref, overrides = {}) => baseEvent({ referral: linkReferral(ref), ...overrides });
   const entryOf = (events, id = PAGE_ID) => ({ id, time: 1700000000000, messaging: events });
   const run = (entries) => processEntries(entries, { cache });
 
@@ -612,6 +615,124 @@ describe('processEntries', () => {
 
       assert.equal(orderStore.size(), 1);
       assert.equal(logged('[Order] Order created').length, 1);
+    });
+  });
+
+  describe('product links (m.me ref)', () => {
+    const link = orderProductPayload(product.id);
+    const replyTexts = () => sentBodies().map((body) => body.message.text);
+
+    test('opening the chat through a product link asks for the quantity of that product', async () => {
+      await run([entryOf([referralEvent(link)])]);
+
+      assert.deepEqual(replyTexts(), [texts.orderStart(product)]);
+      assert.deepEqual(quickReplyPayloads(sentBodies()[0]), quick.QUANTITY.map((item) => item.payload));
+      const session = sessionStore.get(sessionKey);
+      assert.equal(session.step, STEPS.WAITING_FOR_QUANTITY);
+      assert.equal(session.productId, product.id);
+      assert.equal(orderStore.size(), 0);
+    });
+
+    test('Get Started tapped by a new customer who came through a product link starts that order', async () => {
+      await run([entryOf([postbackEvent('GET_STARTED', { referral: linkReferral(link) })])]);
+
+      assert.deepEqual(replyTexts(), [texts.orderStart(product)]);
+      assert.equal(sessionStore.get(sessionKey).productId, product.id);
+    });
+
+    for (const ref of [undefined, '', 'summer_sale', 'MENU', 'ORDER_PRODUCT:', 'CONFIRM_ORDER:abc123']) {
+      test(`Get Started with the ref ${JSON.stringify(ref)} gets the welcome menu`, async () => {
+        await run([entryOf([postbackEvent('GET_STARTED', { referral: linkReferral(ref) })])]);
+        assert.deepEqual(replyTexts(), [WELCOME_TEXT]);
+      });
+    }
+
+    test('a product link in the middle of an order replaces the draft', async () => {
+      await tap(orderProductPayload(firstPage.items[1].id));
+      await say('2');
+      await run([entryOf([referralEvent(link)])]);
+
+      assert.equal(replyTexts().at(-1), texts.orderStart(product));
+      const session = sessionStore.get(sessionKey);
+      assert.equal(session.step, STEPS.WAITING_FOR_QUANTITY);
+      assert.equal(session.productId, product.id);
+      assert.equal(session.quantity, null);
+    });
+
+    test('a link to an unknown product says so and offers the menu', async () => {
+      await run([entryOf([referralEvent(orderProductPayload('P999'))])]);
+
+      assert.deepEqual(replyTexts(), [texts.PRODUCT_NOT_FOUND]);
+      assert.deepEqual(quickReplyPayloads(sentBodies()[0]), quick.MENU.map((item) => item.payload));
+      assert.equal(sessionStore.get(sessionKey).step, STEPS.IDLE);
+    });
+
+    for (const ref of [undefined, '', 'summer_sale', 'MENU', 'GET_STARTED', 'ORDER_PRODUCT:', 'QUANTITY:2', 42]) {
+      test(`a link with the ref ${JSON.stringify(ref)} is not answered`, async () => {
+        await run([entryOf([referralEvent(ref)])]);
+
+        assert.equal(fetchMock.mock.callCount(), 0);
+        assert.deepEqual(ignoredReasons(), ['unsupported_referral']);
+        assert.equal(logged('[Messenger] Incoming customer message').length, 0);
+      });
+    }
+
+    test('an ad referral without a ref is not answered', async () => {
+      await run([entryOf([baseEvent({ referral: { source: 'ADS', type: 'OPEN_THREAD', ad_id: '6045246247433' } })])]);
+      assert.equal(fetchMock.mock.callCount(), 0);
+      assert.deepEqual(ignoredReasons(), ['unsupported_referral']);
+    });
+
+    test('the same link click delivered twice is answered once', async () => {
+      const event = referralEvent(link);
+      await run([entryOf([event])]);
+      await run([entryOf([event])]);
+
+      assert.equal(sentRequests().length, 1);
+      assert.deepEqual(ignoredReasons(), ['duplicate']);
+    });
+
+    test('a later click on the same link is answered again', async () => {
+      const first = referralEvent(link);
+      await run([entryOf([first, { ...first, timestamp: first.timestamp + 1 }])]);
+
+      assert.equal(sentRequests().length, 2);
+      assert.deepEqual(ignoredReasons(), []);
+    });
+
+    test('a link from another sender to another Page is not answered', async () => {
+      await run([entryOf([referralEvent(link)], '9999999999')]);
+      await run([entryOf([referralEvent(link, { sender: { id: PAGE_ID } })])]);
+
+      assert.equal(fetchMock.mock.callCount(), 0);
+      assert.deepEqual(ignoredReasons(), ['page_mismatch', 'self_sender']);
+    });
+
+    test('a link click is logged as a referral with the payload type only, never the ref', async () => {
+      await run([entryOf([referralEvent(link)])]);
+      await run([entryOf([postbackEvent('GET_STARTED', { mid: 'm_gs_link', referral: linkReferral(link) })])]);
+
+      assert.deepEqual(logged('[Messenger] Incoming customer message'), [
+        {
+          pageId: PAGE_ID,
+          senderId: '…3456',
+          mid: null,
+          kind: 'referral',
+          payloadType: 'ORDER_PRODUCT',
+          textLength: 0,
+          attachmentCount: 0,
+        },
+        {
+          pageId: PAGE_ID,
+          senderId: '…3456',
+          mid: 'm_gs_link',
+          kind: 'referral',
+          payloadType: 'ORDER_PRODUCT',
+          textLength: 0,
+          attachmentCount: 0,
+        },
+      ]);
+      assertNoLeaks(link, product.name);
     });
   });
 

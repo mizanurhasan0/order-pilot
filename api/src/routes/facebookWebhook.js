@@ -96,15 +96,22 @@ function describeEvent(event, pageId) {
   }
 
   if (isObject(event.postback)) {
-    const { mid, payload } = event.postback;
+    const { mid, payload, referral } = event.postback;
     return {
       type: 'postback',
       pageId,
       senderId,
       mid: typeof mid === 'string' ? mid : null,
       hasPayload: typeof payload === 'string' && payload !== '',
+      hasRef: typeof referral?.ref === 'string' && referral.ref !== '', // Get Started through an m.me link
       timestamp,
     };
+  }
+
+  if (isObject(event.referral)) {
+    // An existing chat opened again through an m.me link (messaging_referrals).
+    const { ref } = event.referral;
+    return { type: 'referral', pageId, senderId, hasRef: typeof ref === 'string' && ref !== '', timestamp };
   }
 
   // delivery, read, reaction, optin, ... : log which kind it was, nothing else.

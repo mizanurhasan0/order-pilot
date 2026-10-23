@@ -5,12 +5,13 @@ import { createKeyedQueue } from '../utils/keyedQueue.js';
 import { maskId } from '../utils/maskId.js';
 import { conversationService } from './conversationService.js';
 import { sendOrderConfirmation, sendProductCatalog, sendTextMessage } from './messengerService.js';
-import { parsePayload } from './payloads.js';
+import { parsePayload, referralPayload } from './payloads.js';
 import * as quick from './quickReplies.js';
 import { ATTACHMENT } from './replyTexts.js';
 
 // The Messenger side of the order flow. For every webhook event it decides whether a real
-// customer did something (typed text, tapped a quick reply or a button, sent an attachment),
+// customer did something (typed text, tapped a quick reply or a button, sent an attachment,
+// opened the chat through a product link),
 // asks conversationService what to answer and sends those replies through the Send API.
 //
 // Events of ONE customer are handled and answered strictly in arrival order (per-customer
@@ -59,13 +60,24 @@ function readMessage(message) {
   return { kind: 'none', input: null, payloadType: null, ...counts };
 }
 
+// A new customer who opens the chat through a product link (see referralPayload) first taps
+// Get Started, and Messenger puts the link's ref on that postback: the product wins over the
+// welcome menu. Any other ref leaves the postback as it is.
+function readPostback({ mid, payload, referral }) {
+  const counts = { mid: isNonEmptyString(mid) ? mid : null, textLength: 0, attachmentCount: 0 };
+  const fromLink = referralPayload(referral?.ref);
+  if (fromLink) return { ...payloadInput('referral', fromLink), ...counts };
+  return { ...payloadInput('postback', payload), ...counts };
+}
+
 // Describes what the customer did in an event that passed both skip checks.
 function readCustomerInput(event) {
   if (isObject(event.message)) return readMessage(event.message);
+  if (isObject(event.postback)) return readPostback(event.postback);
 
-  const { mid, payload } = event.postback;
-  const counts = { mid: isNonEmptyString(mid) ? mid : null, textLength: 0, attachmentCount: 0 };
-  return { ...payloadInput('postback', payload), ...counts };
+  // A customer who already chatted with the Page opened it again through a product link.
+  const counts = { mid: null, textLength: 0, attachmentCount: 0 };
+  return { ...payloadInput('referral', referralPayload(event.referral.ref)), ...counts };
 }
 
 // --- deciding whether to answer ----------------------------------------------------------
@@ -86,8 +98,17 @@ async function postbackSkipReason(postback, event, cache) {
   return (await cache.markIfNew(key)) ? null : 'duplicate';
 }
 
-// Why an event must not be answered, from its structure alone, or null when it is a message
-// or postback from a customer. No side effects, so it runs before the event is queued.
+// Only a product link is answered. A plain link to the Page, an ad or any other ref asks for
+// nothing, and the bot never writes first. Referrals have no mid: the sender, time and product
+// identify the click.
+async function referralSkipReason(referral, event, cache) {
+  const payload = referralPayload(referral.ref);
+  if (payload === null) return 'unsupported_referral';
+  return (await cache.markIfNew(`referral:${event.sender.id}:${event.timestamp}:${payload}`)) ? null : 'duplicate';
+}
+
+// Why an event must not be answered, from its structure alone, or null when it is a message,
+// postback or referral from a customer. No side effects, so it runs before the event is queued.
 function structuralSkipReason(entry, event, pageId) {
   if (entry.id !== pageId) return 'page_mismatch';
   if (!isObject(event)) return 'invalid_event';
@@ -100,7 +121,7 @@ function structuralSkipReason(entry, event, pageId) {
     return 'recipient_mismatch';
   }
 
-  if (isObject(event.message) || isObject(event.postback)) return null;
+  if (isObject(event.message) || isObject(event.postback) || isObject(event.referral)) return null;
   return 'unsupported_event'; // delivery, read, reaction, ...
 }
 
@@ -109,7 +130,8 @@ function structuralSkipReason(entry, event, pageId) {
 // send twice). Resolves to null when it is a real customer action.
 function contentSkipReason(event, cache) {
   if (isObject(event.message)) return messageSkipReason(event.message, cache);
-  return postbackSkipReason(event.postback, event, cache);
+  if (isObject(event.postback)) return postbackSkipReason(event.postback, event, cache);
+  return referralSkipReason(event.referral, event, cache);
 }
 
 const logIgnored = (reason) => console.log('[Messenger] Ignored event', JSON.stringify({ reason }));

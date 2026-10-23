@@ -344,6 +344,7 @@ Development mode: while the app has only Standard Access, Meta delivers events o
 | --- | --- |
 | `messages` | Text messages and **quick replies** (the `◀ Previous`, `Next ▶` and `Menu` buttons under the catalog arrive as messages that carry a payload) |
 | `messaging_postbacks` | **Postback buttons**: `Order Now` on a product card, and `✅ Confirm` / `❌ Cancel` under the order summary (and the Page's Get Started button, if you set one up) |
+| `messaging_referrals` | Optional: **product links** (`https://m.me/<page>?ref=ORDER_PRODUCT:P001`) opened by a customer who already chatted with the Page (section 15, "Product links for Facebook posts") |
 
 Without `messaging_postbacks` the bot still answers typed messages and the `Next ▶` quick replies, but tapping `Order Now` or `✅ Confirm` does nothing. (Customers can still order by typing a product code such as `P001` and confirming with `1`.) Subscribing to `message_echoes` is optional: echoes are copies of the messages your Page sends, and the server ignores them (they are logged as ignored, never answered). Delivery, read and reaction events are also ignored.
 
@@ -792,7 +793,27 @@ Buttons send a short payload back to the bot. Product cards and the order summar
 | `GET_STARTED` | Messenger's Get Started button, if you set one up on the Page | Welcome message and menu. |
 | anything else | - | Welcome message and menu. |
 
-The `GET_STARTED` payload is understood, but this backend does not create the button on the Page. Quick replies normally disappear after they were used, so a customer who wants another page later types `1` or `next`.
+The `GET_STARTED` payload is understood, but this backend does not create the button on the Page (see "Product links for Facebook posts" below for the one-time setup). Quick replies normally disappear after they were used, so a customer who wants another page later types `1` or `next`.
+
+### Product links for Facebook posts
+
+Share one link per product in a post:
+
+```
+https://m.me/<PAGE_USERNAME>?ref=ORDER_PRODUCT:P001
+```
+
+`<PAGE_USERNAME>` is the Page's username (the part after `facebook.com/`). When a customer taps the link, Messenger opens the chat with the Page and the bot answers as if **Order Now** had been tapped on that product: it asks for the quantity, and replaces a draft in progress. An unknown or unavailable id gives `product_not_found`.
+
+- **A customer who already chatted with the Page**: Messenger sends a `messaging_referrals` event as soon as the chat opens. Subscribe that field (section 8).
+- **A new customer** first sees the Page's **Get Started** button. Tapping it sends the `GET_STARTED` postback together with the link's ref, and the linked product wins over the welcome menu. Without a Get Started button on the Page, new customers lose the ref.
+- Only `ORDER_PRODUCT:<id>` is read from a ref, because anyone can edit a link. Any other ref, and an ad referral without one, is logged as ignored with `"reason":"unsupported_referral"` and never answered. Get Started with such a ref gets the welcome menu as usual.
+
+Add the Get Started button once (uses the Page access token from section 10):
+
+```bash
+curl -X POST "https://graph.facebook.com/v26.0/me/messenger_profile" -H "Content-Type: application/json" -H "Authorization: Bearer $PAGE_ACCESS_TOKEN" -d '{"get_started":{"payload":"GET_STARTED"}}'
+```
 
 ### State diagram
 

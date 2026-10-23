@@ -149,6 +149,16 @@ function postbackEvent({ senderId = PSID, payload = 'GET_STARTED', postback = {}
   };
 }
 
+// Referrals carry no mid, so every one gets its own timestamp to stay clear of the dedupe cache.
+function referralEvent({ ref, timestamp = 1700000000000 + (midCounter += 1) } = {}) {
+  return {
+    sender: { id: PSID },
+    recipient: { id: PAGE_ID },
+    timestamp,
+    referral: { ref, source: 'SHORTLINK', type: 'OPEN_THREAD' },
+  };
+}
+
 function withoutMessageField(event, field) {
   delete event.message[field];
   return event;
@@ -366,6 +376,8 @@ describe('Facebook webhook with automatic replies', () => {
         }),
       'postback without a payload': () =>
         payloadFor(postbackEvent({ postback: { payload: undefined } })),
+      'm.me link whose ref is not a product': () => payloadFor(referralEvent({ ref: 'summer_sale' })),
+      'm.me link without a ref': () => payloadFor(referralEvent()),
     };
 
     for (const [name, build] of Object.entries(cases)) {
@@ -413,6 +425,33 @@ describe('Facebook webhook with automatic replies', () => {
       await waitFor(() => loggedText().includes('[SendAPI] Reply sent successfully'), 'the success log');
       assert.equal(lastText(), texts.orderStart(product));
       assertNothingLeaked(ACCESS_TOKEN, orderProductPayload(product.id));
+    });
+
+    it('answers a product link (m.me ref) with the quantity question of that product', async () => {
+      const product = getCatalogPage(1).items[0];
+      const ref = orderProductPayload(product.id);
+      const res = await postSigned(payloadFor(referralEvent({ ref })));
+      assert.equal(res.status, 200);
+      assert.equal(res.text, 'EVENT_RECEIVED');
+
+      await waitFor(() => loggedText().includes('[SendAPI] Reply sent successfully'), 'the success log');
+      assert.equal(graphCalls.length, 1);
+      assert.equal(lastText(), texts.orderStart(product));
+      assert.ok(loggedText().includes('"type":"referral"'));
+      assert.ok(loggedText().includes('"hasRef":true'));
+      assertNothingLeaked(ACCESS_TOKEN, ref);
+    });
+
+    it('starts the linked order when a new customer taps Get Started', async () => {
+      const product = getCatalogPage(1).items[1];
+      const ref = orderProductPayload(product.id);
+      const event = postbackEvent({ postback: { referral: { ref, source: 'SHORTLINK', type: 'OPEN_THREAD' } } });
+      const res = await postSigned(payloadFor(event));
+      assert.equal(res.status, 200);
+
+      await waitFor(() => loggedText().includes('[SendAPI] Reply sent successfully'), 'the success log');
+      assert.equal(lastText(), texts.orderStart(product));
+      assertNothingLeaked(ACCESS_TOKEN, ref);
     });
 
     it('treats a quick-reply payload as the customer\'s choice, not as its text', async () => {

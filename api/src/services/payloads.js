@@ -42,3 +42,12 @@ export function parsePayload(payload) {
   if (!Object.hasOwn(PAYLOAD_TYPES, type)) return null;
   return { type, arg };
 }
+
+// A product link for a Facebook post: https://m.me/<page>?ref=ORDER_PRODUCT:P001. Messenger hands
+// the ref back when the customer opens the chat through the link. Anyone can edit a link, so only
+// a product choice is read from a ref: the ORDER_PRODUCT payload for it, or null for anything else.
+export function referralPayload(ref) {
+  const parsed = parsePayload(ref);
+  if (parsed?.type !== PAYLOAD_TYPES.ORDER_PRODUCT || !parsed.arg) return null;
+  return orderProductPayload(parsed.arg);
+}
