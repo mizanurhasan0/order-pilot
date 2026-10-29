@@ -32,6 +32,13 @@ describe('createSettings', () => {
     assert.deepEqual(createSettings({}, PAGE).invalid(), []);
   });
 
+  it('asks for the Page settings only while replies are on', () => {
+    const env = { META_APP_SECRET: 'secret', META_VERIFY_TOKEN: 'verify' };
+    assert.deepEqual(createSettings({}, env).invalid(), ['pageAccessToken', 'pageId']);
+    assert.deepEqual(createSettings({ autoReply: false }, env).invalid(), []);
+    assert.deepEqual(createSettings({ autoReply: false }, {}).invalid(), ['appSecret', 'verifyToken']);
+  });
+
   it('accepts only a numeric app id', () => {
     assert.equal(createSettings({}, { FACEBOOK_APP_ID: '555' }).appId(), '555');
     assert.equal(createSettings({}, { FACEBOOK_APP_ID: 'my-app' }).appId(), null);

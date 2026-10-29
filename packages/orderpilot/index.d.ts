@@ -161,7 +161,7 @@ export interface OrderPilot {
   /** Answers already verified webhook entries. */
   processEntries(entries: unknown[]): Promise<void>;
   connect(options?: { getStarted?: boolean }): Promise<{ ok: boolean; steps: ConnectStep[] }>;
-  /** Missing or malformed settings, e.g. ["pageAccessToken (PAGE_ACCESS_TOKEN)"]. */
+  /** Missing or malformed settings, e.g. ["pageAccessToken (PAGE_ACCESS_TOKEN)"]. The Page token and ID count only while autoReply is on. */
   checkConfig(): string[];
   storage: 'memory' | 'redis' | 'custom';
   orders: OrderStore;

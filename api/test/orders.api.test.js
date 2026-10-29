@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import express from 'express';
+import { errorHandler, notFound } from '../src/middleware/errors.js';
 import { createOrdersRouter } from '../src/routes/orders.js';
 import { createOrderStore } from 'orderpilot';
 
 // Integration test: the REAL orders router on a tiny Express app on a random port,
-// with its own isolated store. The error handler mirrors the one in src/app.js.
+// with its own isolated store, and the app's own 404 and error handlers.
 
 const ADMIN_KEY = 'TEST_ADMIN_KEY_0123456789abcdef';
 const PHONE = '01712345678';
@@ -38,17 +39,8 @@ const orderData = (overrides = {}) => ({
 before(async () => {
   const app = express();
   app.use('/api/orders', createOrdersRouter({ store: storeForRouter }));
-  app.use((req, res) => {
-    res.status(404).json({ success: false, message: 'Not found' });
-  });
-  app.use((err, req, res, next) => {
-    if (res.headersSent) return next(err);
-    const status = err.status ?? err.statusCode;
-    if (Number.isInteger(status) && status >= 400 && status < 500) {
-      return res.status(status).json({ success: false, message: status === 413 ? 'Payload too large' : 'Bad request' });
-    }
-    return res.status(500).json({ success: false, message: 'Internal server error' });
-  });
+  app.use(notFound);
+  app.use(errorHandler);
   await new Promise((resolve) => {
     server = app.listen(0, '127.0.0.1', resolve);
   });

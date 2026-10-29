@@ -6,7 +6,7 @@ import { inspect } from 'node:util';
 import express from 'express';
 import { orderProductPayload, quickRepliesFor, textsFor } from 'orderpilot';
 import { SHOP_NAME, bot } from '../src/bot.js';
-import router from '../src/routes/facebookWebhook.js';
+import { errorHandler } from '../src/middleware/errors.js';
 
 // The bot's own stores and texts (Bangla, with this shop's name).
 const { orders: orderStore, preferences: preferenceStore, sessions: sessionStore } = bot;
@@ -202,12 +202,8 @@ function assertNothingLeaked(...secrets) {
 describe('Facebook webhook with automatic replies', () => {
   before(async () => {
     const app = express();
-    app.use('/api/webhooks/facebook', router);
-    app.use((err, req, res, next) => {
-      if (res.headersSent) return next(err);
-      const status = err.status ?? err.statusCode;
-      res.status(Number.isInteger(status) && status >= 400 && status < 500 ? status : 500).json({ success: false });
-    });
+    app.use('/api/webhooks/facebook', bot.webhook);
+    app.use(errorHandler);
     await new Promise((resolve, reject) => {
       server = app.listen(0, '127.0.0.1');
       server.once('listening', resolve);

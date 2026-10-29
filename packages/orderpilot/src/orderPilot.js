@@ -78,6 +78,7 @@ export function createOrderPilot(options = {}) {
     // Links the Page to the bot through the Graph API (see connect.js).
     connect: (connectOptions) => connectPage(settings, connectOptions),
     // Names of the settings that are missing or malformed, e.g. ['pageAccessToken (PAGE_ACCESS_TOKEN)'].
+    // The Page token and ID count only while replies are on (autoReply).
     checkConfig: () => settings.invalid().map(describeSetting),
     // Where orders are kept: 'redis', 'memory' or 'custom' (the shop's own store).
     storage: options.orders ? 'custom' : redis ? 'redis' : 'memory',

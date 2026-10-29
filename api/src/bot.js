@@ -1,8 +1,7 @@
 // This shop's Messenger order bot: the orderpilot package (../packages/orderpilot) with our
 // products and name, and storage in Upstash Redis when it is configured (required on Vercel), else
-// in memory. The Page settings come from the same environment variables as always
-// (PAGE_ACCESS_TOKEN, FACEBOOK_PAGE_ID, META_APP_SECRET, META_VERIFY_TOKEN, ...), read on every
-// request.
+// in memory (bot.storage says which). The Page settings come from the environment (PAGE_ACCESS_TOKEN,
+// FACEBOOK_PAGE_ID, META_APP_SECRET, META_VERIFY_TOKEN, ...), read on every request.
 import './loadEnv.js';
 import { Redis } from '@upstash/redis';
 import { waitUntil } from '@vercel/functions';
@@ -20,8 +19,6 @@ const useRedis = !process.env.NODE_TEST_CONTEXT && invalidStorageVars().length =
 const redis = useRedis
   ? new Redis({ ...getRedisConfig(), automaticDeserialization: false, enableTelemetry: false })
   : null;
-
-export const storageMode = redis ? 'redis' : 'memory';
 
 export const bot = createOrderPilot({
   shopName: SHOP_NAME,

@@ -97,7 +97,7 @@ Every Page setting can come from an option or, when the option is left out, from
 | `autoReply` | | `false` (or a function returning false) receives and logs events without replying. Default on. |
 | `waitUntil` | | Keeps a serverless function alive until the replies are sent. |
 
-`bot.checkConfig()` lists what is missing, for example `['pageAccessToken (PAGE_ACCESS_TOKEN)']`. Without `appSecret` or `verifyToken` the webhook answers `503`; without the Page token the bot receives events but cannot reply.
+`bot.checkConfig()` lists what is missing, for example `['pageAccessToken (PAGE_ACCESS_TOKEN)']` (the Page token and ID only while `autoReply` is on). Without `appSecret` or `verifyToken` the webhook answers `503`; without the Page token the bot receives events but cannot reply.
 
 ## Products
 

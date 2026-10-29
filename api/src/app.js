@@ -3,46 +3,37 @@
 // listen on a port everywhere else.
 import './loadEnv.js';
 import express from 'express';
+import { bot } from './bot.js';
 import { invalidConfigVars } from './config.js';
-import facebookWebhook from './routes/facebookWebhook.js';
+import { errorHandler, notConfigured, notFound } from './middleware/errors.js';
 import ordersRouter from './routes/orders.js';
 import productsRouter from './routes/products.js';
+
+// Every setting that is missing or malformed, by name (never values): this backend's own
+// variables and the bot's. server.js exits when there is any.
+export const configProblems = [...invalidConfigVars(), ...bot.checkConfig()];
 
 const app = express();
 app.disable('x-powered-by');
 
-// A serverless function has no process to stop, so bad configuration is logged (variable
-// names only, never values) and every request is refused. server.js exits on the same check.
-const invalid = invalidConfigVars();
-if (invalid.length > 0) {
-  console.error(`Invalid or missing environment variables: ${invalid.join(', ')}. See .env.example.`);
-  app.use((req, res) => {
-    res.status(503).json({ success: false, message: 'Server is not configured' });
-  });
+// A serverless function has no process to stop, so bad configuration is logged and every request
+// is refused.
+if (configProblems.length > 0) {
+  console.error(`Missing or invalid settings: ${configProblems.join(', ')}. See .env.example.`);
+  app.use(notConfigured);
 }
 
 app.get('/health', (req, res) => {
   res.json({ success: true, message: 'OrderPilot backend is running' });
 });
 
-app.use('/api/webhooks/facebook', facebookWebhook);
+// The Messenger bot's webhook. It reads the raw body for the signature check, so it comes before
+// any JSON body parser.
+app.use('/api/webhooks/facebook', bot.webhook);
 app.use('/api/products', productsRouter);
 app.use('/api/orders', ordersRouter);
 
-app.use((req, res) => {
-  res.status(404).json({ success: false, message: 'Not found' });
-});
-
-app.use((err, req, res, next) => {
-  if (res.headersSent) return next(err);
-  const status = err.status ?? err.statusCode;
-  // Only the error class and status: a JSON parse error message can quote part of the request body.
-  console.error(`Request error: ${err.name} (${Number.isInteger(status) ? status : 500})`);
-  if (Number.isInteger(status) && status >= 400 && status < 500) {
-    const message = status === 413 ? 'Payload too large' : 'Bad request';
-    return res.status(status).json({ success: false, message });
-  }
-  res.status(500).json({ success: false, message: 'Internal server error' });
-});
+app.use(notFound);
+app.use(errorHandler);
 
 export default app;

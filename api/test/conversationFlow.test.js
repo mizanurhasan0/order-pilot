@@ -16,7 +16,7 @@ import {
   textsFor,
 } from 'orderpilot';
 import { SHOP_NAME, bot } from '../src/bot.js';
-import webhookRouter from '../src/routes/facebookWebhook.js';
+import { errorHandler, notFound } from '../src/middleware/errors.js';
 import ordersRouter from '../src/routes/orders.js';
 
 // The bot's own stores and texts (Bangla, with this shop's name).
@@ -284,16 +284,10 @@ describe('Messenger order conversation (webhook + orders API)', () => {
     app.get('/health', (req, res) => {
       res.json({ success: true, message: 'OrderPilot backend is running' });
     });
-    app.use('/api/webhooks/facebook', webhookRouter);
+    app.use('/api/webhooks/facebook', bot.webhook);
     app.use('/api/orders', ordersRouter);
-    app.use((req, res) => {
-      res.status(404).json({ success: false, message: 'Not found' });
-    });
-    app.use((err, req, res, next) => {
-      if (res.headersSent) return next(err);
-      const status = err.status ?? err.statusCode;
-      res.status(Number.isInteger(status) && status >= 400 && status < 500 ? status : 500).json({ success: false });
-    });
+    app.use(notFound);
+    app.use(errorHandler);
     await new Promise((resolve, reject) => {
       server = app.listen(0, '127.0.0.1');
       server.once('listening', resolve);

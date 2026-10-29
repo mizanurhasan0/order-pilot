@@ -52,10 +52,14 @@ export function createSettings(options = {}, env = process.env) {
     return invalid;
   }
 
+  // Replies are on unless the autoReply option says otherwise.
+  const autoReply = () => flag(options.autoReply, () => true);
+
   return {
-    // Everything the webhook and the replies need, by option name.
+    // What the webhook needs, plus the Page settings while replies are on, by option name.
     invalid() {
-      return [...['appSecret', 'verifyToken'].filter((name) => isUnset(value(name))), ...invalidSendApi()];
+      const secrets = ['appSecret', 'verifyToken'].filter((name) => isUnset(value(name)));
+      return autoReply() ? [...secrets, ...invalidSendApi()] : secrets;
     },
 
     invalidSendApi,
@@ -82,8 +86,7 @@ export function createSettings(options = {}, env = process.env) {
     webhookUrl: () => value('webhookUrl') || null,
     shopName: () => value('shopName'),
 
-    // Replies are on unless the autoReply option says otherwise.
-    autoReply: () => flag(options.autoReply, () => true),
+    autoReply,
     // The customer's Facebook language picks Bangla or English unless this is off. DETECT_LANGUAGE=false
     // turns it off when the option is left out.
     detectLanguage: () => flag(options.detectLanguage, () => clean(env.DETECT_LANGUAGE).toLowerCase() !== 'false'),
