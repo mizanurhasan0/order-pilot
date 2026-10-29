@@ -4,8 +4,6 @@ import { EventEmitter } from 'node:events';
 import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:test';
 import { inspect } from 'node:util';
 import express from 'express';
-import webhookRouter from '../src/routes/facebookWebhook.js';
-import ordersRouter from '../src/routes/orders.js';
 import {
   MENU_PAYLOAD,
   NEW_DETAILS_PAYLOAD,
@@ -14,17 +12,25 @@ import {
   confirmOrderPayload,
   orderProductPayload,
   quantityPayload,
-} from '../src/services/payloads.js';
-import { getCatalogPage } from '../src/services/productService.js';
-import * as quick from '../src/services/quickReplies.js';
-import * as texts from '../src/services/replyTexts.js';
-import { orderStore } from '../src/store/orderStore.js';
-import { preferenceStore } from '../src/store/preferenceStore.js';
-import { sessionStore } from '../src/store/sessionStore.js';
+  quickRepliesFor,
+  textsFor,
+} from 'orderpilot';
+import { SHOP_NAME, bot } from '../src/bot.js';
+import { errorHandler, notFound } from '../src/middleware/errors.js';
+import ordersRouter from '../src/routes/orders.js';
 
-// End-to-end test of the whole Messenger order conversation: the REAL webhook router (with
-// its signature check), the REAL auto-reply pipeline, conversation engine, stores, Send API
-// client and the REAL admin orders router on a tiny Express app. Only graph.facebook.com is
+// The bot's own stores and texts (Bangla, with this shop's name).
+const { orders: orderStore, preferences: preferenceStore, sessions: sessionStore } = bot;
+const texts = textsFor('bn', SHOP_NAME);
+const quick = quickRepliesFor('bn');
+const getCatalogPage = (page) => bot.catalog.getCatalogPage(page);
+// A note on top of the question it repeats, written out here independently of the package.
+const resumed = (note, question) => `${note}\n\n${question}`;
+
+// End-to-end test of the whole Messenger order conversation: the REAL webhook (with its
+// signature check), the REAL auto-reply pipeline, conversation engine, stores and Send API client
+// (the orderpilot package, as src/bot.js sets it up) and the REAL admin orders router on a tiny
+// Express app. Only graph.facebook.com is
 // mocked; every Graph request body is recorded. The test's own requests go to 127.0.0.1
 // through the real fetch.
 
@@ -64,7 +70,7 @@ const ADDRESS = 'House 12, Road 3, Hidden Lane, Tangail Sadar';
 const realFetch = globalThis.fetch;
 const events = new EventEmitter();
 
-const PAGE_1 = getCatalogPage(1);
+const PAGE_1 = await getCatalogPage(1);
 const [FIRST, SECOND] = PAGE_1.items;
 
 let baseUrl;
@@ -278,16 +284,10 @@ describe('Messenger order conversation (webhook + orders API)', () => {
     app.get('/health', (req, res) => {
       res.json({ success: true, message: 'OrderPilot backend is running' });
     });
-    app.use('/api/webhooks/facebook', webhookRouter);
+    app.use('/api/webhooks/facebook', bot.webhook);
     app.use('/api/orders', ordersRouter);
-    app.use((req, res) => {
-      res.status(404).json({ success: false, message: 'Not found' });
-    });
-    app.use((err, req, res, next) => {
-      if (res.headersSent) return next(err);
-      const status = err.status ?? err.statusCode;
-      res.status(Number.isInteger(status) && status >= 400 && status < 500 ? status : 500).json({ success: false });
-    });
+    app.use(notFound);
+    app.use(errorHandler);
     await new Promise((resolve, reject) => {
       server = app.listen(0, '127.0.0.1');
       server.once('listening', resolve);
@@ -426,7 +426,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       await customer.say('1');
       const bodies = await customer.quickReply(catalogPagePayload(2), 'Next ▶');
 
-      const page2 = getCatalogPage(2);
+      const page2 = await getCatalogPage(2);
       assert.equal(bodies.length, 2);
       assert.deepEqual(
         templateOf(bodies[0]).elements.map((element) => buttonPayloads(element)[0]),
@@ -448,7 +448,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
       const forward = await customer.say('next');
       assert.deepEqual(
         templateOf(forward[0]).elements.map((element) => buttonPayloads(element)[0]),
-        getCatalogPage(2).items.map((product) => orderProductPayload(product.id)),
+        (await getCatalogPage(2)).items.map((product) => orderProductPayload(product.id)),
       );
 
       const back = await customer.say('Previous');
@@ -820,7 +820,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
         const { summary, draftId } = await reachSummary(customer);
 
         const [again] = await leave(customer);
-        assert.equal(again.message.text, texts.resumed(texts.ORDER_IN_PROGRESS, summary.message.text));
+        assert.equal(again.message.text, resumed(texts.ORDER_IN_PROGRESS, summary.message.text));
         assert.deepEqual(quickReplyPayloads(again), [`CONFIRM_ORDER:${draftId}`, 'CANCEL_ORDER']);
 
         await customer.quickReply(quickReplyPayloads(again)[0], '✅ নিশ্চিত করুন');
@@ -1108,7 +1108,7 @@ describe('Messenger order conversation (webhook + orders API)', () => {
         message: { mid: `m_photo_${(counter += 1)}`, attachments: [{ type: 'image', payload: { url: 'https://cdn.example.test/p.jpg' } }] },
       };
       const [reply] = await customer.deliver([photo]);
-      assert.equal(reply.message.text, texts.resumed(texts.ATTACHMENT_IN_ORDER, texts.askPhone(null)));
+      assert.equal(reply.message.text, resumed(texts.ATTACHMENT_IN_ORDER, texts.askPhone(null)));
       assert.ok(graphCalls.every((call) => !call.url.includes('cdn.example.test')));
 
       // still waiting for the phone number

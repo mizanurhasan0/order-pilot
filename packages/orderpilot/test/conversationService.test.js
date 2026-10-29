@@ -1,6 +1,6 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { products } from '../src/data/products.js';
+import { CATALOG_PAGE_SIZE, createCatalog } from '../src/catalog.js';
 import { createConversationService } from '../src/services/conversationService.js';
 import {
   CANCEL_ORDER_PAYLOAD,
@@ -16,7 +16,7 @@ import {
   orderProductPayload,
   quantityPayload,
 } from '../src/services/payloads.js';
-import { CATALOG_PAGE_SIZE, getCatalogPage } from '../src/services/productService.js';
+import { products } from './fixtures/products.js';
 import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
 import { createOrderStore } from '../src/store/orderStore.js';
@@ -31,10 +31,12 @@ const PHONE = '01712345678';
 const ADDRESS = 'House 12, Road 3, Tangail Sadar';
 const FIRST = products[0];
 const SECOND = products[1];
-const TOTAL_PAGES = getCatalogPage(1).totalPages;
+const CATALOG = createCatalog(products);
+const getCatalogPage = (page) => CATALOG.getCatalogPage(page);
+const TOTAL_PAGES = (await getCatalogPage(1)).totalPages;
 
 // A fresh engine per test with its own stores and a clock the test controls.
-function setup({ catalog } = {}) {
+function setup({ catalog = CATALOG } = {}) {
   let time = 1_000_000;
   const clock = {
     now: () => time,
@@ -53,6 +55,7 @@ function setup({ catalog } = {}) {
     sessions,
     orders,
     preferences,
+    catalog,
     service,
     say: (text, who = ALICE) => handle(who, { type: 'text', text }),
     tap: (payload, who = ALICE) => handle(who, { type: 'payload', payload }),
@@ -187,7 +190,7 @@ test('"2" shows only the customer\'s own latest orders, without phone or address
 test('1 shows catalog page 1 with the navigation and fallback texts', async () => {
   const h = setup();
   const [reply, ...rest] = await h.say('1');
-  const page = getCatalogPage(1);
+  const page = await getCatalogPage(1);
 
   assert.equal(rest.length, 0);
   assert.equal(reply.kind, 'catalog');
@@ -218,7 +221,7 @@ test('catalog aliases: products, catalog, order, view products, পণ্য, �
 test('CATALOG_PAGE payload shows that page and remembers it', async () => {
   const h = setup();
   const [reply] = await h.tap(catalogPagePayload(2));
-  const expected = getCatalogPage(2);
+  const expected = await getCatalogPage(2);
   assert.equal(reply.kind, 'catalog');
   assert.equal(reply.rule, 'catalog_page');
   assert.equal(reply.page, expected.page);
@@ -910,7 +913,11 @@ test('an unexpected failure inside a store becomes the fallback reply', async ()
       throw new Error('boom');
     },
   };
-  const service = createConversationService({ sessions: brokenSessions, orders: createOrderStore() });
+  const service = createConversationService({
+    sessions: brokenSessions,
+    orders: createOrderStore(),
+    preferences: createPreferenceStore(),
+  });
   assertSingleText(await service.handle({ ...ALICE, input: { type: 'text', text: 'hi' } }), 'fallback', texts.FALLBACK);
 
   // A Redis store fails by rejecting rather than throwing.
@@ -919,7 +926,11 @@ test('an unexpected failure inside a store becomes the fallback reply', async ()
       throw new Error('ECONNRESET');
     },
   };
-  const offline = createConversationService({ sessions: unreachableSessions, orders: createOrderStore() });
+  const offline = createConversationService({
+    sessions: unreachableSessions,
+    orders: createOrderStore(),
+    preferences: createPreferenceStore(),
+  });
   assertSingleText(await offline.handle({ ...ALICE, input: { type: 'text', text: '1' } }), 'fallback', texts.FALLBACK);
 
   const h = setup();
@@ -931,7 +942,12 @@ test('an unexpected failure inside a store becomes the fallback reply', async ()
     findByIdempotencyKey: () => null,
     listByCustomer: () => [],
   };
-  const failing = createConversationService({ sessions: h.sessions, orders: failingOrders });
+  const failing = createConversationService({
+    sessions: h.sessions,
+    orders: failingOrders,
+    preferences: h.preferences,
+    catalog: h.catalog,
+  });
   assertSingleText(await failing.handle({ ...ALICE, input: { type: 'text', text: '1' } }), 'fallback', texts.FALLBACK);
   // The draft is kept, so the customer can simply try again.
   assert.equal(h.session().step, STEPS.WAITING_FOR_CONFIRMATION);
@@ -1160,14 +1176,60 @@ test('saved details belong to one customer: another customer is asked for their 
   assert.ok(!JSON.stringify(replies).includes(PHONE));
 });
 
-test('the default conversationService is wired to the real stores and catalog', async () => {
-  const { conversationService } = await import('../src/services/conversationService.js');
-  const who = { pageId: 'default-wiring-page', psid: 'default-wiring-customer' };
-  const ask = (text) => conversationService.handle({ ...who, input: { type: 'text', text } });
+test('without a catalog there is nothing to sell', async () => {
+  const sessions = createSessionStore();
+  const service = createConversationService({ sessions, orders: createOrderStore(), preferences: createPreferenceStore() });
+  const ask = (text) => service.handle({ ...ALICE, input: { type: 'text', text } });
 
   assertSingleText(await ask('hi'), 'welcome', texts.WELCOME);
-  assert.equal((await ask('1'))[0].kind, 'catalog');
-  assertSingleText(await ask('menu'), 'welcome', texts.WELCOME);
+  assertSingleText(await ask('1'), 'catalog', texts.CATALOG_EMPTY);
+  assertSingleText(await ask('p001'), 'product_not_found', texts.PRODUCT_NOT_FOUND);
+});
+
+test('the shop name goes into the welcome, read on every message', async () => {
+  let name = 'Tangail Botiques';
+  const service = createConversationService({
+    sessions: createSessionStore(),
+    orders: createOrderStore(),
+    preferences: createPreferenceStore(),
+    shopName: () => name,
+  });
+  const ask = (text) => service.handle({ ...ALICE, input: { type: 'text', text } });
+
+  assertSingleText(await ask('hi'), 'welcome', texts.textsFor('bn', 'Tangail Botiques').WELCOME);
+  name = 'Dhaka Fashion';
+  assertSingleText(await ask('hi'), 'welcome', texts.textsFor('bn', 'Dhaka Fashion').WELCOME);
+  const fixed = createConversationService({
+    sessions: createSessionStore(),
+    orders: createOrderStore(),
+    preferences: createPreferenceStore(),
+    shopName: 'My Shop',
+  });
+  const [welcome] = await fixed.handle({ ...ALICE, input: { type: 'text', text: 'hi' } });
+  assert.equal(welcome.text, texts.textsFor('bn', 'My Shop').WELCOME);
+});
+
+test('a catalog function (a database query) is read on every lookup, and products default sensibly', async () => {
+  let rows = [{ id: 'X1', name: 'Plain Kurti', price: 900, imageUrl: 'https://images.example.com/x1.jpg' }];
+  const h = setup({ catalog: createCatalog(async () => rows) });
+
+  const [catalogReply] = await h.say('1');
+  assert.equal(catalogReply.kind, 'catalog');
+  assert.deepEqual(
+    catalogReply.products.map((product) => [product.id, product.currency]),
+    [['X1', 'BDT']],
+    'available and currency default to true and BDT',
+  );
+
+  rows = [...rows, { id: 'X2', name: 'Hidden', price: 500, available: false }, { id: 'X3', name: 'No price' }];
+  assert.deepEqual((await h.say('1'))[0].products.map((product) => product.id), ['X1']);
+  // The shop's own ids can be typed like P001 codes; one that is not in the catalog is not an id.
+  assertSingleText(await h.say('x2'), 'product_not_found', texts.PRODUCT_NOT_FOUND);
+  assertSingleText(await h.say('x3'), 'fallback', texts.FALLBACK);
+  assertSingleText(await h.say('hello there'), 'fallback', texts.FALLBACK);
+  const [start] = await h.say('order X1');
+  assert.equal(start.rule, 'order_start');
+  assert.equal(h.session().productId, 'X1');
 });
 
 // --- language ----------------------------------------------------------------------------------
@@ -1196,7 +1258,7 @@ test('a customer with English stored gets English texts and buttons all the way'
 
   const [catalogReply] = await h.say('1');
   assert.equal(catalogReply.language, 'en');
-  assert.equal(catalogReply.navText, EN.catalogNav(getCatalogPage(1)));
+  assert.equal(catalogReply.navText, EN.catalogNav(await getCatalogPage(1)));
 
   // Somebody else is untouched and still gets Bangla.
   assertSingleText(await h.say('hi', BOB), 'welcome', texts.WELCOME);

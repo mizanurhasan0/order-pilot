@@ -1,33 +1,35 @@
-// Local and VPS entry point: checks the configuration, then listens on PORT. On Vercel this
-// file is not used; app.js is served directly.
+// Local and VPS entry point: listens on PORT once the configuration is valid. On Vercel this file
+// is not used; app.js is served directly.
 import './loadEnv.js';
-import { getSendApiConfig, invalidConfigVars, isAutoReplyEnabled } from './config.js';
+import app, { configProblems } from './app.js';
+import { bot } from './bot.js';
+import { isAutoReplyEnabled } from './config.js';
 
-// Fail fast on bad configuration. Only variable names are logged, never values.
-const invalid = invalidConfigVars();
-const rawPort = (process.env.PORT ?? '').trim() || '3000';
-const port = /^\d+$/.test(rawPort) ? Number(rawPort) : NaN;
-if (!(port >= 1 && port <= 65535)) invalid.push('PORT');
-if (invalid.length > 0) {
-  console.error(`Invalid or missing environment variables: ${invalid.join(', ')}. See .env.example.`);
-  process.exit(1);
+// PORT as a number from 1 to 65535 (default 3000), or null when it is anything else.
+function parsePort(value) {
+  const raw = (value ?? '').trim() || '3000';
+  const port = /^\d+$/.test(raw) ? Number(raw) : NaN;
+  return port >= 1 && port <= 65535 ? port : null;
 }
 
-// Imported only after the check, so bad configuration stops here with the message above.
-const { default: app } = await import('./app.js');
-const { storageMode } = await import('./store/index.js');
+// Fail fast on bad configuration: app.js has already logged the names of the problem settings.
+if (configProblems.length > 0) process.exit(1);
+
+const port = parsePort(process.env.PORT);
+if (port === null) {
+  console.error('Missing or invalid settings: PORT. See .env.example.');
+  process.exit(1);
+}
 
 const server = app.listen(port);
 
 server.on('listening', () => {
   console.log(`OrderPilot backend listening on http://localhost:${port}`);
   console.log(
-    isAutoReplyEnabled()
-      ? `Auto-reply: enabled (Graph API ${getSendApiConfig().version})`
-      : 'Auto-reply: disabled (set ENABLE_AUTO_REPLY=true to enable)',
+    isAutoReplyEnabled() ? 'Auto-reply: enabled' : 'Auto-reply: disabled (set ENABLE_AUTO_REPLY=true to enable)',
   );
   console.log(
-    storageMode === 'redis'
+    bot.storage === 'redis'
       ? 'Storage: Upstash Redis'
       : 'Storage: memory (orders and sessions are lost on restart; set UPSTASH_REDIS_REST_URL to persist)',
   );

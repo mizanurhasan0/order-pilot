@@ -1,12 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CATEGORIES, products } from '../src/data/products.js';
-import {
-  CATALOG_PAGE_SIZE,
-  getCatalogPage,
-  getProductById,
-  listProducts,
-} from '../src/services/productService.js';
+import { getProductById, listProducts } from '../src/services/productService.js';
 
 // The data module is the single source of truth: every expectation below is
 // computed from it, so these tests keep working when the catalog changes.
@@ -247,86 +242,4 @@ test('getProductById: non-string input returns null', () => {
   for (const id of [undefined, null, 1, 0, NaN, true, {}, [], [products[0].id], () => products[0].id]) {
     assert.equal(getProductById(id), null);
   }
-});
-
-// ---------------------------------------------------------------- getCatalogPage
-
-test('getCatalogPage: the default page size is 5', () => {
-  assert.equal(CATALOG_PAGE_SIZE, 5);
-  const { items, page, totalPages } = getCatalogPage(1);
-  assert.equal(items.length, Math.min(5, available.length));
-  assert.equal(page, 1);
-  assert.equal(totalPages, expectedPages(available.length, 5));
-  assert.deepEqual(getCatalogPage(1), getCatalogPage(1, CATALOG_PAGE_SIZE));
-});
-
-test('getCatalogPage: walks only the available products, in order, with correct hasPrev/hasNext', () => {
-  const { totalPages } = getCatalogPage(1);
-  const seen = [];
-  for (let page = 1; page <= totalPages; page += 1) {
-    const result = getCatalogPage(page);
-    assert.equal(result.page, page);
-    assert.equal(result.totalPages, totalPages);
-    assert.equal(result.hasPrev, page > 1);
-    assert.equal(result.hasNext, page < totalPages);
-    assert.ok(result.items.length >= 1 && result.items.length <= CATALOG_PAGE_SIZE);
-    for (const item of result.items) assert.equal(item.available, true);
-    seen.push(...result.items);
-  }
-  assert.deepEqual(seen, available);
-});
-
-test('getCatalogPage: an out-of-range page is clamped into 1..totalPages', () => {
-  const { totalPages } = getCatalogPage(1);
-  const last = getCatalogPage(totalPages);
-
-  for (const page of [totalPages + 1, totalPages + 100, 1_000_000]) {
-    assert.deepEqual(getCatalogPage(page), last, `page ${page}`);
-  }
-  assert.equal(last.hasNext, false);
-
-  for (const page of [0, -1, -100]) {
-    assert.deepEqual(getCatalogPage(page), getCatalogPage(1), `page ${page}`);
-  }
-  assert.equal(getCatalogPage(0).hasPrev, false);
-});
-
-test('getCatalogPage: NaN, float, string and missing pages become page 1', () => {
-  const first = getCatalogPage(1);
-  for (const page of [NaN, 1.5, 2.9, -0.5, Infinity, '2', 'abc', null, undefined, {}]) {
-    assert.deepEqual(getCatalogPage(page), first, `page ${String(page)}`);
-  }
-});
-
-test('getCatalogPage: supports a custom page size', () => {
-  const size = 3;
-  const first = getCatalogPage(1, size);
-  assert.equal(first.items.length, Math.min(size, available.length));
-  assert.equal(first.totalPages, expectedPages(available.length, size));
-  assert.deepEqual(first.items, available.slice(0, size));
-
-  const seen = [];
-  for (let page = 1; page <= first.totalPages; page += 1) seen.push(...getCatalogPage(page, size).items);
-  assert.deepEqual(seen, available);
-
-  // One huge page holds everything.
-  const all = getCatalogPage(1, 10_000);
-  assert.deepEqual(all.items, available);
-  assert.equal(all.totalPages, 1);
-  assert.equal(all.hasPrev, false);
-  assert.equal(all.hasNext, false);
-});
-
-test('getCatalogPage: an invalid page size falls back to 5', () => {
-  const expected = getCatalogPage(1);
-  for (const size of [0, -3, 2.5, NaN, 'abc', null]) {
-    assert.deepEqual(getCatalogPage(1, size), expected, `size ${String(size)}`);
-  }
-});
-
-test('getCatalogPage: changing the returned items does not affect the catalog', () => {
-  const result = getCatalogPage(1);
-  const expected = [...result.items];
-  result.items.length = 0;
-  assert.deepEqual(getCatalogPage(1).items, expected);
 });

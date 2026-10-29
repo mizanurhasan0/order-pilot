@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { getRedisConfig, invalidAdminVars, invalidStorageVars, isLanguageDetectionEnabled } from '../src/config.js';
+import {
+  getRedisConfig,
+  invalidAdminVars,
+  invalidAutoReplyVars,
+  invalidConfigVars,
+  invalidStorageVars,
+  isAutoReplyEnabled,
+} from '../src/config.js';
 
 describe('invalidAdminVars', () => {
   it('accepts a key of 16 characters or more', () => {
@@ -67,13 +74,28 @@ describe('invalidStorageVars', () => {
   });
 });
 
-describe('isLanguageDetectionEnabled', () => {
-  it('is on unless DETECT_LANGUAGE is "false"', () => {
-    for (const value of [undefined, '', 'true', 'TRUE', 'yes', '1']) {
-      assert.equal(isLanguageDetectionEnabled({ DETECT_LANGUAGE: value }), true, String(value));
+describe('ENABLE_AUTO_REPLY', () => {
+  it('is on only for "true", in any case', () => {
+    for (const value of ['true', 'TRUE', ' true ']) assert.equal(isAutoReplyEnabled({ ENABLE_AUTO_REPLY: value }), true, value);
+    for (const value of [undefined, '', 'false', 'yes', '1']) {
+      assert.equal(isAutoReplyEnabled({ ENABLE_AUTO_REPLY: value }), false, String(value));
     }
-    for (const value of ['false', 'FALSE', ' false ']) {
-      assert.equal(isLanguageDetectionEnabled({ DETECT_LANGUAGE: value }), false, value);
-    }
+  });
+
+  it('rejects anything but true, false or unset, so a typo never switches replies', () => {
+    for (const value of [undefined, '', 'true', 'False']) assert.deepEqual(invalidAutoReplyVars({ ENABLE_AUTO_REPLY: value }), []);
+    for (const value of ['yes', '1', 'on']) assert.deepEqual(invalidAutoReplyVars({ ENABLE_AUTO_REPLY: value }), ['ENABLE_AUTO_REPLY']);
+  });
+});
+
+describe('invalidConfigVars', () => {
+  it('lists every problem with this backend\'s own variables, by name', () => {
+    assert.deepEqual(invalidConfigVars({ ENABLE_AUTO_REPLY: 'yes', VERCEL: '1' }), [
+      'ENABLE_AUTO_REPLY',
+      'ADMIN_API_KEY',
+      'UPSTASH_REDIS_REST_URL',
+      'UPSTASH_REDIS_REST_TOKEN',
+    ]);
+    assert.deepEqual(invalidConfigVars({ ADMIN_API_KEY: 'k'.repeat(24) }), []);
   });
 });

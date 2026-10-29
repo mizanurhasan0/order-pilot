@@ -1,9 +1,10 @@
 // Every customer-facing string of the order flow lives here, so wording can be reviewed
 // and changed in one place. The conversation engine only picks which text to send.
 //
-// The bot speaks Bangla (the default) or English (services/language.js); textsFor(language)
-// returns one complete set. Both sets have exactly the same keys. Product names, prices and
-// order ids are shown as they are stored. The named exports below are the Bangla set.
+// The bot speaks Bangla (the default) or English (services/language.js); textsFor(language,
+// shopName) returns one complete set, with the shop's name in the welcome text (a general welcome
+// when there is none). Both sets have exactly the same keys. Product names, prices and order ids
+// are shown as they are stored. The named exports below are the Bangla set without a shop name.
 
 import { DEFAULT_LANGUAGE } from './language.js';
 
@@ -17,7 +18,7 @@ export const savedPhoneButton = (phone) => `📱 ${phone}`;
 // A note on top, then the question it repeats.
 export const resumed = (note, question) => lines([note, '', question]);
 
-function bangla() {
+function bangla(shopName) {
   // Quick-reply labels (Messenger cuts them at 20 characters).
   const BUTTONS = Object.freeze({
     products: '🛍️ পণ্য দেখুন',
@@ -43,7 +44,7 @@ function bangla() {
   const WELCOME = lines([
     'স্বাগতম! 🛍️',
     '',
-    'Tangail Botiques-এ আপনাকে স্বাগতম।',
+    shopName ? `${shopName}-এ আপনাকে স্বাগতম।` : 'আমাদের পেজে আপনাকে স্বাগতম।',
     '',
     'আমাদের পণ্য দেখতে অথবা অর্ডার করতে নিচের অপশন নির্বাচন করুন।',
     '',
@@ -218,7 +219,7 @@ function bangla() {
   });
 }
 
-function english() {
+function english(shopName) {
   const BUTTONS = Object.freeze({
     products: '🛍️ View Products',
     myOrders: '📦 My Orders',
@@ -242,7 +243,7 @@ function english() {
   const WELCOME = lines([
     'Welcome! 🛍️',
     '',
-    'Welcome to Tangail Botiques.',
+    shopName ? `Welcome to ${shopName}.` : 'Welcome to our shop.',
     '',
     'Choose an option below to see our products or place an order.',
     '',
@@ -399,10 +400,21 @@ function english() {
   });
 }
 
-const TEXTS = Object.freeze({ bn: bangla(), en: english() });
+const BUILDERS = Object.freeze({ bn: bangla, en: english });
+
+// Built once per language and shop name.
+const cache = new Map();
 
 // The complete text set of a language; anything unknown gets the default (Bangla).
-export const textsFor = (language) => TEXTS[language] ?? TEXTS[DEFAULT_LANGUAGE];
+export function textsFor(language, shopName = '') {
+  const builder = Object.hasOwn(BUILDERS, language) ? language : DEFAULT_LANGUAGE;
+  const name = typeof shopName === 'string' ? shopName.trim() : '';
+  const key = `${builder}:${name}`;
+  if (!cache.has(key)) cache.set(key, BUILDERS[builder](name));
+  return cache.get(key);
+}
+
+const TEXTS = Object.freeze({ bn: textsFor('bn') });
 
 export const {
   BUTTONS,

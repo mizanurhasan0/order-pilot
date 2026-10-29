@@ -1,9 +1,8 @@
 import { products } from '../data/products.js';
 
-// Product lookups for the REST API and the Messenger catalog. The data lives in
-// src/data/products.js, so everything here is plain in-memory array work.
+// Product lookups for the REST API. The data lives in src/data/products.js, so everything here is
+// plain in-memory array work. The Messenger bot gets the same list (src/bot.js) and pages it itself.
 
-export const CATALOG_PAGE_SIZE = 5;
 const DEFAULT_LIMIT = 10;
 
 const productsById = new Map(products.map((product) => [product.id.toUpperCase(), product]));
@@ -49,22 +48,4 @@ export function listProducts({ page = 1, limit = DEFAULT_LIMIT, category, search
 export function getProductById(id) {
   if (typeof id !== 'string') return null;
   return productsById.get(id.trim().toUpperCase()) ?? null;
-}
-
-// One page of the Messenger catalog: available products only. An out-of-range
-// page is clamped into 1..totalPages and a non-integer page becomes 1.
-export function getCatalogPage(page, pageSize = CATALOG_PAGE_SIZE) {
-  const size = positiveInt(pageSize, CATALOG_PAGE_SIZE);
-  const available = products.filter((product) => product.available);
-  const totalPages = Math.max(1, Math.ceil(available.length / size));
-  const current = Math.min(positiveInt(page, 1), totalPages);
-  const start = (current - 1) * size;
-
-  return {
-    items: available.slice(start, start + size),
-    page: current,
-    totalPages,
-    hasPrev: current > 1,
-    hasNext: current < totalPages,
-  };
 }

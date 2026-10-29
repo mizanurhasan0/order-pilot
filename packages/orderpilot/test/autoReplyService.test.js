@@ -1,21 +1,51 @@
 import { describe, test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeText, processEntries } from '../src/services/autoReplyService.js';
-import { conversationService } from '../src/services/conversationService.js';
+import { createCatalog } from '../src/catalog.js';
+import { createSettings } from '../src/config.js';
+import { createAutoReplyService } from '../src/services/autoReplyService.js';
+import { createConversationService } from '../src/services/conversationService.js';
 import { createDedupeCache } from '../src/services/dedupeCache.js';
+import { createMessengerClient } from '../src/services/messengerService.js';
 import { catalogPagePayload, MENU_PAYLOAD, orderProductPayload } from '../src/services/payloads.js';
-import { getCatalogPage } from '../src/services/productService.js';
 import * as quick from '../src/services/quickReplies.js';
 import * as texts from '../src/services/replyTexts.js';
-import { orderStore } from '../src/store/orderStore.js';
-import { preferenceStore } from '../src/store/preferenceStore.js';
-import { STEPS, conversationKey, sessionStore } from '../src/store/sessionStore.js';
+import { createOrderStore } from '../src/store/orderStore.js';
+import { createPreferenceStore } from '../src/store/preferenceStore.js';
+import { STEPS, conversationKey, createSessionStore } from '../src/store/sessionStore.js';
+import { normalizeText } from '../src/utils/normalizeText.js';
+import { products } from './fixtures/products.js';
+
+// The pipeline under test, wired the way createOrderPilot() wires it, with settings from the
+// environment the tests set. ENABLE_AUTO_REPLY=true switches the replies on (the autoReply option
+// as a function, read on every delivery).
+const catalog = createCatalog(products);
+const FIRST_PAGE = await catalog.getCatalogPage(1);
+const SECOND_PAGE = await catalog.getCatalogPage(2);
+const sessionStore = createSessionStore();
+const orderStore = createOrderStore();
+const preferenceStore = createPreferenceStore();
+const settings = createSettings({ autoReply: () => process.env.ENABLE_AUTO_REPLY?.trim().toLowerCase() === 'true' });
+const conversationService = createConversationService({
+  sessions: sessionStore,
+  orders: orderStore,
+  preferences: preferenceStore,
+  catalog,
+});
+const { processEntries } = createAutoReplyService({
+  conversation: conversationService,
+  sessions: sessionStore,
+  preferences: preferenceStore,
+  orders: orderStore,
+  dedupe: createDedupeCache(),
+  messenger: createMessengerClient({ getConfig: settings.sendApi }),
+  settings,
+});
 
 // The welcome menu and the attachment reply written out independently of replyTexts.js,
 // so a typo there is caught.
 const WELCOME_TEXT = `স্বাগতম! 🛍️
 
-Tangail Botiques-এ আপনাকে স্বাগতম।
+আমাদের পেজে আপনাকে স্বাগতম।
 
 আমাদের পণ্য দেখতে অথবা অর্ডার করতে নিচের অপশন নির্বাচন করুন।
 
@@ -113,7 +143,7 @@ describe('processEntries', () => {
   const PHONE = '01712345678';
   const ADDRESS = 'House 12, Road 3, Tangail Sadar';
 
-  const firstPage = getCatalogPage(1);
+  const firstPage = FIRST_PAGE;
   const product = firstPage.items[0];
   const sessionKey = conversationKey(PAGE_ID, PSID);
 
@@ -310,7 +340,7 @@ describe('processEntries', () => {
       const [carousel] = sentBodies();
       assert.deepEqual(
         templateOf(carousel).elements.map((element) => element.buttons[0].payload),
-        getCatalogPage(2).items.map((item) => orderProductPayload(item.id)),
+        SECOND_PAGE.items.map((item) => orderProductPayload(item.id)),
       );
       assert.deepEqual(logged('[AutoReply] Matching reply rule'), [
         { rule: 'catalog_page', step: STEPS.BROWSING_PRODUCTS },
@@ -849,7 +879,7 @@ describe('processEntries', () => {
   });
 
   describe('sending in order', () => {
-    const view = getCatalogPage(1);
+    const view = FIRST_PAGE;
     const replyList = [
       { kind: 'text', rule: 'welcome', text: 'first reply' },
       {

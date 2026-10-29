@@ -1,0 +1,33 @@
+{
+  "name": "orderpilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Messenger order bot for Facebook Pages: install it in any Node.js app, give it your Page details and products, and customers order in Messenger (Bangla and English).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "types": "./index.d.ts",
+  "files": [
+    "src",
+    "index.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "facebook",
+    "messenger",
+    "chatbot",
+    "ecommerce",
+    "orders",
+    "bangla"
+  ]
+}

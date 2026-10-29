@@ -26,6 +26,7 @@ export const quantityPayload = (quantity) => `${PAYLOAD_TYPES.QUANTITY}:${quanti
 export const languagePayload = (language) => `${PAYLOAD_TYPES.LANGUAGE}:${language}`;
 export const CANCEL_ORDER_PAYLOAD = PAYLOAD_TYPES.CANCEL_ORDER;
 export const MENU_PAYLOAD = PAYLOAD_TYPES.MENU;
+export const GET_STARTED_PAYLOAD = PAYLOAD_TYPES.GET_STARTED;
 export const MY_ORDERS_PAYLOAD = PAYLOAD_TYPES.MY_ORDERS;
 export const SUPPORT_PAYLOAD = PAYLOAD_TYPES.SUPPORT;
 export const USE_SAVED_DETAILS_PAYLOAD = PAYLOAD_TYPES.USE_SAVED_DETAILS;

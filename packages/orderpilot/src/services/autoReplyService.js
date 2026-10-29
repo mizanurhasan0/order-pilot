@@ -1,35 +1,22 @@
-import { getSendApiConfig, isAutoReplyEnabled, isLanguageDetectionEnabled } from '../config.js';
-import { dedupeCache, orderStore, preferenceStore, sessionStore } from '../store/index.js';
 import { conversationKey } from '../store/sessionStore.js';
 import { createKeyedQueue } from '../utils/keyedQueue.js';
 import { maskId } from '../utils/maskId.js';
-import { conversationService } from './conversationService.js';
 import { DEFAULT_LANGUAGE, languageFromLocale } from './language.js';
-import {
-  getUserLocale,
-  sendOrderConfirmation,
-  sendPhotoAndText,
-  sendProductCatalog,
-  sendTextMessage,
-} from './messengerService.js';
 import { parsePayload, referralPayload } from './payloads.js';
 
 // The Messenger side of the order flow. For every webhook event it decides whether a real
 // customer did something (typed text, tapped a quick reply or a button, sent an attachment,
 // opened the chat through a product link),
-// asks conversationService what to answer and sends those replies through the Send API.
+// asks the conversation engine what to answer and sends those replies through the Send API.
 //
-// Events of ONE customer are handled and answered strictly in arrival order (per-customer
-// queue); different customers run in parallel. The dedupe mark is made before anything is
-// sent. Dedupe and sessions live in Redis when it is configured (see store/index.js), else in
-// memory. The queue is always per process, so it orders one instance's events only.
+// createAutoReplyService() gets everything it uses: the conversation engine, the stores, the
+// duplicate filter, a Messenger client and the settings. Events of ONE customer are handled and
+// answered strictly in arrival order (per-customer queue); different customers run in parallel.
+// The dedupe mark is made before anything is sent. The queue is per process, so it orders one
+// instance's events only.
 //
 // Logs carry rule names, ids and counts only. Message text, phone numbers, addresses, payload
 // values (just their type), tokens and full PSIDs are never logged.
-
-export { normalizeText } from '../utils/normalizeText.js';
-
-const queue = createKeyedQueue();
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isNonEmptyString = (value) => typeof value === 'string' && value !== '';
@@ -190,139 +177,156 @@ function logSendResult(senderId, reply, result) {
   );
 }
 
-// Ids and amounts only: the order holds a phone number and an address, which stay out of logs.
-async function logOrderCreated(reply) {
-  if (reply.rule !== 'order_confirmed' || !reply.orderId) return;
-  const order = await orderStore.get(reply.orderId);
-  if (!order) return;
-  console.log(
-    '[Order] Order created',
-    JSON.stringify({
-      orderId: order.id,
-      productId: order.productId,
-      quantity: order.quantity,
-      subtotal: order.subtotal,
-    }),
-  );
-}
-
 // Only the error class is logged: messages can echo request details.
 function logUnexpected(err) {
   const name = typeof err?.name === 'string' ? err.name : 'UnknownError';
   console.error('[AutoReply] Unexpected error', JSON.stringify({ name }));
 }
 
-// --- answering -----------------------------------------------------------------------------
+// `onOrder(order)` (optional) runs once for every new order, before the confirmation is sent:
+// for example to save it in the shop's own database. A failing hook is logged and never stops
+// the reply; the order is already stored.
+export function createAutoReplyService({ conversation, sessions, preferences, orders, dedupe, messenger, settings, onOrder }) {
+  const queue = createKeyedQueue();
 
-const SENDERS = {
-  text: (psid, reply) => sendTextMessage(psid, reply.text, { quickReplies: reply.quickReplies }),
-  text_with_photo: (psid, { imageUrl, text, quickReplies }) => sendPhotoAndText(psid, { imageUrl, text, quickReplies }),
-  catalog: (psid, reply) => sendProductCatalog(psid, reply),
-  order_confirmation: (psid, { text, draftId, language }) => sendOrderConfirmation(psid, { text, draftId, language }),
-};
+  const SENDERS = {
+    text: (psid, reply) => messenger.sendTextMessage(psid, reply.text, { quickReplies: reply.quickReplies }),
+    text_with_photo: (psid, { imageUrl, text, quickReplies }) =>
+      messenger.sendPhotoAndText(psid, { imageUrl, text, quickReplies }),
+    catalog: (psid, reply) => messenger.sendProductCatalog(psid, reply),
+    order_confirmation: (psid, { text, draftId, language }) =>
+      messenger.sendOrderConfirmation(psid, { text, draftId, language }),
+  };
 
-// Sends the replies one by one, in order. After the first failure the rest are dropped: the
-// customer must not get a later message (say, the phone question) without the earlier one.
-async function sendReplies(psid, replies, step) {
-  const maskedPsid = maskId(psid);
-  for (const reply of replies) {
-    console.log('[AutoReply] Matching reply rule', JSON.stringify({ rule: reply.rule, step }));
-    await logOrderCreated(reply);
-
-    const result = await SENDERS[reply.kind](psid, reply);
-    logSendResult(maskedPsid, reply, result);
-    if (result?.ok !== true) return;
-  }
-}
-
-// A new customer's first message: their Facebook language (locale) picks the bot's language,
-// English for en_*, Bangla for everything else and whenever Meta does not tell (no permission yet,
-// a phone-number account, a timeout). Read once and remembered, so later messages cost nothing;
-// the 🌐 button changes it any time. A failure here never stops the reply.
-async function rememberLanguage(pageId, psid) {
-  try {
-    if (!isLanguageDetectionEnabled()) return;
-    const key = conversationKey(pageId, psid);
-    if (await preferenceStore.getLanguage(key)) return;
-
-    const result = await getUserLocale(psid);
-    const language = result.ok ? languageFromLocale(result.locale) : DEFAULT_LANGUAGE;
-    await preferenceStore.setLanguage(key, language);
+  // Ids and amounts only: the order holds a phone number and an address, which stay out of logs.
+  async function orderCreated(reply) {
+    if (reply.rule !== 'order_confirmed' || !reply.orderId) return;
+    const order = await orders.get(reply.orderId);
+    if (!order) return;
     console.log(
-      '[AutoReply] Language detected',
+      '[Order] Order created',
       JSON.stringify({
-        senderId: maskId(psid),
-        language,
-        source: result.ok && result.locale ? 'locale' : 'default',
-        ...(!result.ok && { reason: result.reason, hint: result.hint, code: result.error?.code ?? null }),
+        orderId: order.id,
+        productId: order.productId,
+        quantity: order.quantity,
+        subtotal: order.subtotal,
       }),
     );
-  } catch (err) {
-    logUnexpected(err);
-  }
-}
-
-// Runs in the customer's queue slot. The step is read AFTER handle(), so the log shows where
-// the conversation is now.
-async function answerCustomer(pageId, psid, input) {
-  await rememberLanguage(pageId, psid);
-  const replies = await conversationService.handle({ pageId, psid, input });
-  const { step } = await sessionStore.get(conversationKey(pageId, psid));
-  await sendReplies(psid, replies, step);
-}
-
-async function handleEvent(entry, event, pageId, cache) {
-  try {
-    const structural = structuralSkipReason(entry, event, pageId);
-    if (structural) {
-      logIgnored(structural);
-      return;
+    if (typeof onOrder !== 'function') return;
+    try {
+      await onOrder({ ...order });
+    } catch (err) {
+      const name = typeof err?.name === 'string' ? err.name : 'UnknownError';
+      console.error('[Order] onOrder failed', JSON.stringify({ orderId: order.id, name }));
     }
-
-    // The dedupe check and the queue slot both start before anything is awaited, so one
-    // customer's events keep their arrival order even when the checks (Redis round trips with a
-    // Redis store) finish out of order. The slot of a skipped event does nothing.
-    const psid = event.sender.id;
-    const { input, kind, mid, payloadType, textLength, attachmentCount } = readCustomerInput(event);
-    const skip = contentSkipReason(event, cache);
-    const answered = queue.run(conversationKey(pageId, psid), async () => {
-      if (await skip.catch(() => 'check_failed')) return; // reported below
-      await answerCustomer(pageId, psid, input);
-    });
-
-    // Reported at once: a duplicate never waits behind a reply that is still in flight.
-    const reason = await skip;
-    if (reason) {
-      logIgnored(reason);
-      return;
-    }
-    console.log(
-      '[Messenger] Incoming customer message',
-      JSON.stringify({ pageId, senderId: maskId(psid), mid, kind, payloadType, textLength, attachmentCount }),
-    );
-    await answered;
-  } catch (err) {
-    logUnexpected(err);
   }
-}
 
-// Answers the customer actions in an already signature-verified webhook `entry` array.
-// Never rejects, so the caller can fire and forget it after acknowledging Meta.
-export async function processEntries(entries, options) {
-  try {
-    if (!isAutoReplyEnabled() || !Array.isArray(entries)) return;
+  // Sends the replies one by one, in order. After the first failure the rest are dropped: the
+  // customer must not get a later message (say, the phone question) without the earlier one.
+  async function sendReplies(psid, replies, step) {
+    const maskedPsid = maskId(psid);
+    for (const reply of replies) {
+      console.log('[AutoReply] Matching reply rule', JSON.stringify({ rule: reply.rule, step }));
+      await orderCreated(reply);
 
-    const cache = options?.cache ?? dedupeCache;
-    const { pageId } = getSendApiConfig();
-    const pending = [];
-    for (const entry of entries) {
-      if (!isObject(entry) || !Array.isArray(entry.messaging)) continue;
-      for (const event of entry.messaging) {
-        pending.push(handleEvent(entry, event, pageId, cache));
+      const result = await SENDERS[reply.kind](psid, reply);
+      logSendResult(maskedPsid, reply, result);
+      if (result?.ok !== true) return;
+    }
+  }
+
+  // A new customer's first message: their Facebook language (locale) picks the bot's language,
+  // English for en_*, Bangla for everything else and whenever Meta does not tell (no permission yet,
+  // a phone-number account, a timeout). Read once and remembered, so later messages cost nothing;
+  // the 🌐 button changes it any time. A failure here never stops the reply.
+  async function rememberLanguage(pageId, psid) {
+    try {
+      if (!settings.detectLanguage()) return;
+      const key = conversationKey(pageId, psid);
+      if (await preferences.getLanguage(key)) return;
+
+      const result = await messenger.getUserLocale(psid);
+      const language = result.ok ? languageFromLocale(result.locale) : DEFAULT_LANGUAGE;
+      await preferences.setLanguage(key, language);
+      console.log(
+        '[AutoReply] Language detected',
+        JSON.stringify({
+          senderId: maskId(psid),
+          language,
+          source: result.ok && result.locale ? 'locale' : 'default',
+          ...(!result.ok && { reason: result.reason, hint: result.hint, code: result.error?.code ?? null }),
+        }),
+      );
+    } catch (err) {
+      logUnexpected(err);
+    }
+  }
+
+  // Runs in the customer's queue slot. The step is read AFTER handle(), so the log shows where
+  // the conversation is now.
+  async function answerCustomer(pageId, psid, input) {
+    await rememberLanguage(pageId, psid);
+    const replies = await conversation.handle({ pageId, psid, input });
+    const { step } = await sessions.get(conversationKey(pageId, psid));
+    await sendReplies(psid, replies, step);
+  }
+
+  async function handleEvent(entry, event, pageId, cache) {
+    try {
+      const structural = structuralSkipReason(entry, event, pageId);
+      if (structural) {
+        logIgnored(structural);
+        return;
       }
+
+      // The dedupe check and the queue slot both start before anything is awaited, so one
+      // customer's events keep their arrival order even when the checks (Redis round trips with a
+      // Redis store) finish out of order. The slot of a skipped event does nothing.
+      const psid = event.sender.id;
+      const { input, kind, mid, payloadType, textLength, attachmentCount } = readCustomerInput(event);
+      const skip = contentSkipReason(event, cache);
+      const answered = queue.run(conversationKey(pageId, psid), async () => {
+        if (await skip.catch(() => 'check_failed')) return; // reported below
+        await answerCustomer(pageId, psid, input);
+      });
+
+      // Reported at once: a duplicate never waits behind a reply that is still in flight.
+      const reason = await skip;
+      if (reason) {
+        logIgnored(reason);
+        return;
+      }
+      console.log(
+        '[Messenger] Incoming customer message',
+        JSON.stringify({ pageId, senderId: maskId(psid), mid, kind, payloadType, textLength, attachmentCount }),
+      );
+      await answered;
+    } catch (err) {
+      logUnexpected(err);
     }
-    await Promise.allSettled(pending);
-  } catch (err) {
-    logUnexpected(err);
   }
+
+  // Answers the customer actions in an already signature-verified webhook `entry` array.
+  // Never rejects, so the caller can fire and forget it after acknowledging Meta.
+  // `options.cache` replaces the duplicate filter (tests).
+  async function processEntries(entries, options) {
+    try {
+      if (!settings.autoReply() || !Array.isArray(entries)) return;
+
+      const cache = options?.cache ?? dedupe;
+      const pageId = settings.pageId();
+      const pending = [];
+      for (const entry of entries) {
+        if (!isObject(entry) || !Array.isArray(entry.messaging)) continue;
+        for (const event of entry.messaging) {
+          pending.push(handleEvent(entry, event, pageId, cache));
+        }
+      }
+      await Promise.allSettled(pending);
+    } catch (err) {
+      logUnexpected(err);
+    }
+  }
+
+  return { processEntries };
 }

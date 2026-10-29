@@ -11,13 +11,17 @@
 //   orders:psid:<psid>      the same per customer, for listByCustomer()
 //   orders:draft:<key>      idempotency key -> order id
 //
-// Values are JSON strings written and parsed here, so the client must be created with
-// automaticDeserialization: false. list() loads every order, which suits a small shop.
+// Values are JSON strings written and parsed here (a client with automatic deserialization works
+// too). list() loads every order, which suits a small shop.
 
 import { buildOrder, FIRST_ORDER_NUMBER, validateOrderData, validateStatus } from './orderStore.js';
 
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim() !== '';
-const parse = (value) => (typeof value === 'string' ? JSON.parse(value) : null);
+// A client with automatic deserialization hands back objects instead of the JSON strings written here.
+const parse = (value) => {
+  if (typeof value === 'string') return JSON.parse(value);
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+};
 
 export function createRedisOrderStore({ redis, prefix = 'orderpilot:', now = () => new Date() }) {
   const keys = {
