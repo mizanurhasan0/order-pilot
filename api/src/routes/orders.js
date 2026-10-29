@@ -1,7 +1,7 @@
 import express from 'express';
+import { ORDER_STATUSES } from 'orderpilot';
+import { bot } from '../bot.js';
 import { requireAdminKey } from '../middleware/adminAuth.js';
-import { orderStore } from '../store/index.js';
-import { ORDER_STATUSES } from '../store/orderStore.js';
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -11,9 +11,9 @@ const isOrderStatus = (value) => typeof value === 'string' && ORDER_STATUSES.inc
 
 const badRequest = (res, message) => res.status(400).json({ success: false, message });
 
-// Admin-only order API. Orders contain customer phone numbers and addresses,
-// so the admin key is checked before anything else, even for unknown sub-paths.
-export function createOrdersRouter({ store = orderStore } = {}) {
+// Admin-only order API over the orders the Messenger bot takes. Orders contain customer phone
+// numbers and addresses, so the admin key is checked before anything else, even for unknown sub-paths.
+export function createOrdersRouter({ store = bot.orders } = {}) {
   const router = express.Router();
 
   router.use(requireAdminKey);

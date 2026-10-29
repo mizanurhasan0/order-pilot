@@ -6,7 +6,8 @@
 // keeps working. Redis drops the key PURGE_INTERVAL_MS after that, which mirrors the memory
 // store's periodic purge.
 //
-// Values are JSON strings, so the client must be created with automaticDeserialization: false.
+// Values are written as JSON strings. A client that parses them itself (Upstash's default
+// automaticDeserialization) hands back objects, which are read as they are.
 
 import { applyPatch, defaultSession, PURGE_INTERVAL_MS, SESSION_TTL_MS } from './sessionStore.js';
 
@@ -20,7 +21,8 @@ export function createRedisSessionStore({ redis, prefix = 'orderpilot:', ttlMs =
 
   async function read(key) {
     const value = await redis.get(keyFor(key));
-    return typeof value === 'string' ? JSON.parse(value) : null;
+    if (typeof value === 'string') return JSON.parse(value);
+    return value !== null && typeof value === 'object' ? value : null;
   }
 
   return {

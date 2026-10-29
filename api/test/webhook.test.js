@@ -4,17 +4,18 @@ import { EventEmitter } from 'node:events';
 import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:test';
 import { inspect } from 'node:util';
 import express from 'express';
+import { orderProductPayload, quickRepliesFor, textsFor } from 'orderpilot';
+import { SHOP_NAME, bot } from '../src/bot.js';
 import router from '../src/routes/facebookWebhook.js';
-import { orderProductPayload } from '../src/services/payloads.js';
-import { getCatalogPage } from '../src/services/productService.js';
-import * as quick from '../src/services/quickReplies.js';
-import * as texts from '../src/services/replyTexts.js';
-import { orderStore } from '../src/store/orderStore.js';
-import { preferenceStore } from '../src/store/preferenceStore.js';
-import { sessionStore } from '../src/store/sessionStore.js';
 
-// Integration test: the REAL webhook router (signature check, parsing, auto-reply
-// service, Send API client) on a tiny Express app. Only calls to graph.facebook.com
+// The bot's own stores and texts (Bangla, with this shop's name).
+const { orders: orderStore, preferences: preferenceStore, sessions: sessionStore } = bot;
+const texts = textsFor('bn', SHOP_NAME);
+const quick = quickRepliesFor('bn');
+const PAGE_1 = await bot.catalog.getCatalogPage(1);
+
+// Integration test: the REAL webhook (the orderpilot package's signature check, parsing,
+// auto-reply service and Send API client, as src/bot.js sets it up) on a tiny Express app. Only calls to graph.facebook.com
 // are mocked; the test's own requests to 127.0.0.1 go through the real fetch.
 
 const VERIFY_TOKEN = 'TEST_VERIFY_TOKEN';
@@ -421,7 +422,7 @@ describe('Facebook webhook with automatic replies', () => {
     });
 
     it('answers an "Order Now" postback with the quantity question', async () => {
-      const product = getCatalogPage(1).items[0];
+      const product = PAGE_1.items[0];
       const res = await postSigned(payloadFor(postbackEvent({ payload: orderProductPayload(product.id) })));
       assert.equal(res.status, 200);
 
@@ -431,7 +432,7 @@ describe('Facebook webhook with automatic replies', () => {
     });
 
     it('answers a product link (m.me ref) with the quantity question of that product', async () => {
-      const product = getCatalogPage(1).items[0];
+      const product = PAGE_1.items[0];
       const ref = orderProductPayload(product.id);
       const res = await postSigned(payloadFor(referralEvent({ ref })));
       assert.equal(res.status, 200);
@@ -447,7 +448,7 @@ describe('Facebook webhook with automatic replies', () => {
     });
 
     it('starts the linked order when a new customer taps Get Started', async () => {
-      const product = getCatalogPage(1).items[1];
+      const product = PAGE_1.items[1];
       const ref = orderProductPayload(product.id);
       const event = postbackEvent({ postback: { referral: { ref, source: 'SHORTLINK', type: 'OPEN_THREAD' } } });
       const res = await postSigned(payloadFor(event));

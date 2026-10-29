@@ -16,6 +16,8 @@ A small Node.js (Express 5) backend that lets Meta verify your **Callback URL**,
 
 With `ENABLE_AUTO_REPLY=false` (the default) the Messenger side behaves exactly like Phase 1: it receives and logs webhook events and never replies. The product API and the orders API are always available, and the server will not start without `ADMIN_API_KEY` (section 2).
 
+**The Messenger bot is a separate package.** The webhook, the conversation, the Send API client and the order, session and language stores live in [`../packages/orderpilot`](../packages/orderpilot/README.md), an npm package any Node.js app can install. This backend uses it through a local link (`"orderpilot": "link:../packages/orderpilot"` in `package.json`) and sets it up in `src/bot.js` with our 50 products, our shop name and Upstash Redis. Everything below works exactly as before; only the file locations changed. Paths starting with `orderpilot/` mean `../packages/orderpilot/`.
+
 Upgrading from Phase 2: no new dependencies, so `pnpm install` is not needed. Add `ADMIN_API_KEY` to your `.env` (section 2) and make sure the app is subscribed to `messaging_postbacks` (section 8), because the 🛒 অর্ডার করুন and Confirm buttons arrive as postbacks.
 
 ## Project structure
@@ -27,62 +29,49 @@ Upgrading from Phase 2: no new dependencies, so `pnpm install` is not needed. Ad
 │   ├── server.js                  # local/VPS entry: env and PORT checks, then listens
 │   ├── loadEnv.js                 # loads .env before anything reads process.env
 │   ├── config.js                  # env helpers: auto-reply flag, Send API settings, ADMIN_API_KEY and Redis checks
+│   ├── bot.js                     # the Messenger bot: createOrderPilot() with our products, shop name and Redis
 │   ├── data/
 │   │   └── products.js            # the static catalog: 50 products, 8 categories (edit this file to change products)
 │   ├── middleware/
 │   │   └── adminAuth.js           # X-Admin-Key check that protects /api/orders
 │   ├── routes/
-│   │   ├── facebookWebhook.js     # GET verification + POST event receiver (answers 200 first, then triggers auto-reply)
+│   │   ├── facebookWebhook.js     # the bot's webhook (GET verification + signed POST events), mounted by app.js
 │   │   ├── products.js            # GET /api/products and /api/products/:id (public)
-│   │   └── orders.js              # /api/orders (admin key required)
+│   │   └── orders.js              # /api/orders over the bot's orders (admin key required)
 │   ├── services/
-│   │   ├── messengerService.js    # Send API client: text, quick replies, generic and button templates, catalog (10 s timeout, error hints)
-│   │   ├── autoReplyService.js    # event filters, per-customer queue, reply sending, logs
-│   │   ├── conversationService.js # the ordering state machine: decides WHAT to answer
-│   │   ├── replyTexts.js          # every customer-facing text, Bangla and English sets
-│   │   ├── language.js            # bn / en, Bangla default, Facebook locale -> language
-│   │   ├── payloads.js            # postback and quick-reply payload strings
-│   │   ├── productService.js      # product lists, lookup by id, Messenger catalog pages
-│   │   ├── dedupeCache.js         # in-memory message-id cache (10 minute TTL)
-│   │   └── redisDedupeCache.js    # the same in Redis (SET NX with a TTL)
-│   ├── store/
-│   │   ├── index.js               # picks Redis when configured (always on Vercel), else memory
-│   │   ├── orderStore.js          # in-memory orders (lost on restart)
-│   │   ├── redisOrderStore.js     # the same orders in Upstash Redis
-│   │   ├── sessionStore.js        # in-memory conversation sessions (30 minutes, lost on restart)
-│   │   ├── preferenceStore.js     # each customer's language, in memory
-│   │   ├── redisPreferenceStore.js # the same in Redis (kept a year)
-│   │   └── redisSessionStore.js   # the same sessions in Upstash Redis
+│   │   └── productService.js      # product lists and lookup by id for the REST API
 │   └── utils/
-│       ├── keyedQueue.js          # runs one customer's events one after another
-│       ├── maskId.js              # masks IDs for logs (last 4 characters only)
-│       ├── normalizeText.js       # lower-case, Bangla digits to ASCII, trims edge punctuation
-│       ├── safeEqual.js           # constant-time string comparison
-│       └── validators.js          # quantity, Bangladesh phone number and address checks
+│       └── safeEqual.js           # constant-time string comparison
 ├── test/
 │   ├── adminAuth.test.js          # X-Admin-Key middleware, constant-time comparison
-│   ├── autoReplyService.test.js   # filters, postbacks, quick replies, dedupe, queue, logs
-│   ├── config.test.js             # ADMIN_API_KEY startup validation
-│   ├── conversationService.test.js # every step of the ordering conversation
-│   ├── dedupeCache.test.js        # duplicate cache
-│   ├── keyedQueue.test.js         # per-key ordering
-│   ├── language.test.js           # locale -> language, the in-memory language store
-│   ├── messengerService.test.js   # Send API client (Meta API mocked)
-│   ├── orderStore.test.js         # in-memory orders
+│   ├── config.test.js             # ADMIN_API_KEY and Redis startup validation
+│   ├── conversationFlow.test.js   # a whole order end to end: webhook, bot, Send API (mocked), orders API
 │   ├── orders.api.test.js         # /api/orders over HTTP
-│   ├── productService.test.js     # product lists, filters, catalog pages
+│   ├── productService.test.js     # product lists, filters, lookup by id
 │   ├── products.api.test.js       # /api/products over HTTP
 │   ├── products.data.test.js      # invariants of the 50-product catalog
-│   ├── replyTexts.test.js         # customer-facing texts
-│   ├── sessionStore.test.js       # sessions, 30 minute expiry
-│   ├── validators.test.js         # quantity, phone, address rules
-│   └── webhook.test.js            # HTTP routes, signature, 200 before processing
+│   └── webhook.test.js            # the mounted webhook: signature, 200 before processing, replies
 ├── .env                           # your secrets (git-ignored, never commit)
 ├── .env.example                   # template, safe to commit
 ├── .gitignore
 ├── package.json
 ├── pnpm-lock.yaml                 # created by `pnpm install`, commit it
 └── README.md
+
+../packages/orderpilot/            # the Messenger bot package (see its README)
+├── src/
+│   ├── index.js                   # public API: createOrderPilot(), productLink(), texts, payloads, stores
+│   ├── orderPilot.js              # createOrderPilot(): wires settings, stores, catalog, Send API client and webhook
+│   ├── config.js                  # settings: an option, else the environment variable (read on every call)
+│   ├── webhook.js                 # GET verification + signed POST receiver, Express/node:http and fetch adapters
+│   ├── connect.js                 # connect(): app webhook, Page subscription, Get Started button
+│   ├── catalog.js                 # products from an array or a (database) function, Messenger pages of 5
+│   ├── graph.js                   # the Graph API request (token in the header only, error hints)
+│   ├── services/                  # autoReplyService, conversationService, messengerService, replyTexts,
+│   │                              # quickReplies, payloads, language, dedupeCache, redisDedupeCache
+│   ├── store/                     # orders, sessions and languages, each in memory and in Redis
+│   └── utils/                     # keyedQueue, maskId, normalizeText, safeEqual, validators
+└── test/                          # the bot's own tests (Meta API mocked)
 ```
 
 Requirements: Node.js 20 or newer and [pnpm](https://pnpm.io/installation) 10 or newer. Run every command below from the project root (the folder that contains `package.json`).
@@ -715,7 +704,7 @@ Meta may change image size or ratio guidance; check Messenger's current *generic
 
 ## 15. The Messenger conversation
 
-The whole conversation is a small state machine in `src/services/conversationService.js`. There is one session per customer per Page. The bot always answers what the customer sent; it never starts a conversation.
+The whole conversation is a small state machine in `orderpilot/src/services/conversationService.js`. There is one session per customer per Page. The bot always answers what the customer sent; it never starts a conversation.
 
 The normal path:
 
@@ -918,7 +907,7 @@ The bot speaks **Bangla by default** and **English** for customers who want it. 
 
 ### Customer texts
 
-All wording lives in `src/services/replyTexts.js`, one complete set per language (`textsFor('bn')`, `textsFor('en')`, with the same keys; the named exports are the Bangla set). Button labels are there too; the card and catalog buttons are in `messengerService.js`. Product names, prices and order ids are shown as stored. If you edit it, keep each text under 2000 characters (the Send API limit), each button label under 20, and keep the words the bot understands (`1`, `2`, `3`, `মেনু`, `বাতিল`, `পরের`, `আগের`) in the texts that mention them. `test/replyTexts.test.js` checks the approved wording and will tell you when a text changed.
+All wording lives in `orderpilot/src/services/replyTexts.js`, one complete set per language (`textsFor('bn', shopName)`, `textsFor('en', shopName)`, with the same keys; the shop name, `Tangail Botiques`, is set in `src/bot.js`). Button labels are there too; the card and catalog buttons are in `messengerService.js`. Product names, prices and order ids are shown as stored. If you edit it, keep each text under 2000 characters (the Send API limit), each button label under 20, and keep the words the bot understands (`1`, `2`, `3`, `মেনু`, `বাতিল`, `পরের`, `আগের`) in the texts that mention them. `orderpilot/test/replyTexts.test.js` checks the approved wording and will tell you when a text changed.
 
 ## 16. Orders API (admin)
 
@@ -1105,34 +1094,37 @@ If a step does not behave like this, use sections 19 and 20.
 pnpm test
 ```
 
-This runs the tests in `test/` with Node's built-in test runner (`node --test`). No extra test libraries are needed. The Meta Graph API is fully mocked (`fetch` is replaced), so the tests make **no real Meta calls**, use no real token and no `.env` file: they set fake environment values themselves and restore them afterwards. The HTTP tests start the app on a random local port and close it again. Time-dependent code (the 30 minute session expiry, the 10 minute duplicate cache) uses an injected clock, so no test waits. Nothing is left running when they finish, and they take a few seconds.
+This runs the tests in `test/` with Node's built-in test runner (`node --test`). The bot's own tests are in the package: run `pnpm test` in `../packages/orderpilot` as well. No extra test libraries are needed. The Meta Graph API is fully mocked (`fetch` is replaced), so the tests make **no real Meta calls**, use no real token and no `.env` file: they set fake environment values themselves and restore them afterwards. The HTTP tests start the app on a random local port and close it again. Time-dependent code (the 30 minute session expiry, the 10 minute duplicate cache) uses an injected clock, so no test waits. Nothing is left running when they finish, and they take a few seconds.
 
 To run one file:
 
 ```bash
-pnpm test test/validators.test.js
+pnpm test test/webhook.test.js
 ```
 
 What is covered:
 
 | File | Covers |
 | --- | --- |
-| `test/messengerService.test.js` | Send API request (URL, `Authorization` header, body, version, `RESPONSE` type), quick replies, generic and button templates (exact payloads, truncation, the 10-card cap), the product catalog and order confirmation senders, the text fallback (only for rejected templates, never after a timeout or an invalid token), navigation failures, mapping of Graph errors to `reason` and `hint`, timeout and network failures, bad input rejected before any call, the token never appearing in results |
-| `test/dedupeCache.test.js` | First time seen versus duplicate, 10 minute expiry, size limit, invalid keys, clearing |
-| `test/autoReplyService.test.js` | The filters of section 12 (page mismatch, self, echo, unsupported events, duplicates), text, quick-reply and postback events, attachments, per-customer ordering, sending several replies, log lines that contain no customer text, phone, address or token |
-| `test/webhook.test.js` | GET verification, signature checks (a bad signature sends nothing), `200` before the Send API finishes, one reply per message, duplicates, disabled auto-reply, Send API failures still returning `200` |
-| `test/conversationService.test.js` | The whole ordering conversation: every step, every keyword and payload, validation, confirm, duplicate confirm, cancel, expiry, two customers kept apart, nothing logged |
-| `test/replyTexts.test.js` | The approved customer-facing texts |
-| `test/validators.test.js` | Quantity, Bangladesh phone number and address rules |
-| `test/sessionStore.test.js` | Steps, 30 minute expiry (reported once), isolation, size limit, cleanup timer |
-| `test/keyedQueue.test.js` | Same-key tasks run in order, different keys run together, a failing task does not block the next, no leftover entries |
-| `test/orderStore.test.js` | Orders `ORD-1001` onwards, price snapshot, one order per draft id, copies, listing and filtering, status updates |
 | `test/orders.api.test.js` | `/api/orders` over HTTP: 401 without the key on every route, list, filter, get, `PATCH`, 400, 404 and 413 answers |
 | `test/adminAuth.test.js` | The `X-Admin-Key` check, constant-time comparison, the key never echoed or logged |
 | `test/config.test.js` | `ADMIN_API_KEY` startup validation (missing, placeholder, shorter than 16 characters) |
-| `test/productService.test.js` | Product lists, pagination, category and search filters, lookup by id, Messenger catalog pages |
+| `test/productService.test.js` | Product lists, pagination, category and search filters, lookup by id |
 | `test/products.api.test.js` | `/api/products` over HTTP: defaults, paging, filters, all 400 cases, `404` for an unknown product |
 | `test/products.data.test.js` | The bundled catalog: 50 products, ids `P001` to `P050`, 8 categories, full schema, HTTPS image URLs, a mix on page 1 |
+| `test/webhook.test.js` | The mounted webhook: GET verification, signature checks (a bad signature sends nothing), `200` before the Send API finishes, one reply per message, duplicates, disabled auto-reply, Send API failures still returning `200` |
+| `test/conversationFlow.test.js` | A whole order end to end through the webhook, the bot and the admin orders API |
+| `orderpilot/test/messengerService.test.js` | Send API request (URL, `Authorization` header, body, version, `RESPONSE` type), quick replies, generic and button templates (exact payloads, truncation, the 10-card cap), the product catalog and order confirmation senders, the text fallback (only for rejected templates, never after a timeout or an invalid token), navigation failures, mapping of Graph errors to `reason` and `hint`, timeout and network failures, bad input rejected before any call, the token never appearing in results |
+| `orderpilot/test/dedupeCache.test.js` | First time seen versus duplicate, 10 minute expiry, size limit, invalid keys, clearing |
+| `orderpilot/test/autoReplyService.test.js` | The filters of section 12 (page mismatch, self, echo, unsupported events, duplicates), text, quick-reply and postback events, attachments, per-customer ordering, sending several replies, log lines that contain no customer text, phone, address or token |
+| `orderpilot/test/conversationService.test.js` | The whole ordering conversation: every step, every keyword and payload, validation, confirm, duplicate confirm, cancel, expiry, two customers kept apart, nothing logged |
+| `orderpilot/test/replyTexts.test.js` | The approved customer-facing texts |
+| `orderpilot/test/validators.test.js` | Quantity, Bangladesh phone number and address rules |
+| `orderpilot/test/sessionStore.test.js` | Steps, 30 minute expiry (reported once), isolation, size limit, cleanup timer |
+| `orderpilot/test/keyedQueue.test.js` | Same-key tasks run in order, different keys run together, a failing task does not block the next, no leftover entries |
+| `orderpilot/test/orderStore.test.js` | Orders `ORD-1001` onwards, price snapshot, one order per draft id, copies, listing and filtering, status updates |
+| `orderpilot/test/orderPilot.test.js` | `createOrderPilot()` options, the webhook on `node:http` and as a fetch handler, a whole order with `onOrder`, Redis, `connect()` |
+| `orderpilot/test/catalog.test.js` | Products from an array or a function, defaults, Messenger catalog pages |
 
 ## 19. Common webhook configuration errors and solutions
 
@@ -1235,7 +1227,7 @@ When you contact Meta support, give them the `fbtraceId` from the log line (and 
 
 The backend runs on Vercel as one serverless function: Vercel's zero-config Express support serves the app exported by `src/app.js` (`src/server.js` is only used to listen locally or on a VPS). Serverless instances share no memory and are stopped at any time, so on Vercel **orders, chat sessions and duplicate filtering are stored in Upstash Redis**. Without it the app answers 503 to everything and logs the missing variable names.
 
-1. Create a Vercel project from this repository with **Root Directory** set to `api`.
+1. Create a Vercel project from this repository with **Root Directory** set to `api`. The bot package lives outside it (`../packages/orderpilot`), so keep the option **Include source files outside of the Root Directory in the Build Step** (next to the Root Directory setting) switched on. It is on by default.
 2. Add a Redis database: in the project, open Storage (or the Marketplace), pick **Upstash for Redis** on the free plan and connect it to the project. This sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`, which the app reads. A database made at upstash.com works too: set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
 3. Under Settings > Environment Variables add `META_VERIFY_TOKEN`, `META_APP_SECRET`, `ADMIN_API_KEY`, and for auto-reply `ENABLE_AUTO_REPLY`, `PAGE_ACCESS_TOKEN`, `FACEBOOK_PAGE_ID`, `META_GRAPH_API_VERSION`. `DETECT_LANGUAGE` is optional (on when unset). `PORT` is not needed.
 4. Deploy, then open `https://<project>.vercel.app/health`.

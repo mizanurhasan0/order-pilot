@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import express from 'express';
 import { createOrdersRouter } from '../src/routes/orders.js';
-import { createOrderStore } from '../src/store/orderStore.js';
+import { createOrderStore } from 'orderpilot';
 
 // Integration test: the REAL orders router on a tiny Express app on a random port,
 // with its own isolated store. The error handler mirrors the one in src/app.js.

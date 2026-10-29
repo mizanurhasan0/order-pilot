@@ -1,19 +1,18 @@
 import { randomUUID } from 'node:crypto';
-import { orderStore, preferenceStore, sessionStore } from '../store/index.js';
+import { createCatalog, isAvailable } from '../catalog.js';
 import { conversationKey, STEPS } from '../store/sessionStore.js';
 import { normalizeText } from '../utils/normalizeText.js';
 import { normalizeBdPhone, parseAddress, parseQuantity } from '../utils/validators.js';
 import { DEFAULT_LANGUAGE, isLanguage } from './language.js';
 import { PAYLOAD_TYPES, parsePayload } from './payloads.js';
-import * as productService from './productService.js';
 import { quickRepliesFor } from './quickReplies.js';
 import { resumed, textsFor } from './replyTexts.js';
 
 // The order conversation as a small state machine, one session per page + customer.
 // handle() resolves to the list of Reply objects to send and never rejects: it only decides
 // WHAT to answer; autoReplyService sends them. Its only I/O is the session, order and preference
-// stores, which may be in memory or in Redis. It does not log anything because the session holds
-// the customer's phone number and address.
+// stores (in memory, in Redis or the shop's own) and the catalog (see catalog.js). It does not log
+// anything because the session holds the customer's phone number and address.
 //
 // Every reply is in the customer's language (Bangla unless they have English, see
 // services/language.js): ctx.t holds that language's texts and ctx.q its quick replies.
@@ -51,6 +50,8 @@ const LANGUAGE_WORDS = {
 };
 
 const PRODUCT_CODE = /^(?:order )?(p\d{1,5})$/;
+// Any other typed id is looked up in the catalog, so a shop's own ids ("x1", "sku-55") work too.
+const TYPED_ID = /^(?:order )?([a-z0-9][a-z0-9_-]{0,39})$/;
 const RECENT_ORDERS_LIMIT = 3;
 
 // Everything a half-finished order stores in the session.
@@ -74,29 +75,32 @@ const menuReply = (ctx, rule, text) => textReply(rule, text, { quickReplies: ctx
 const isId = (value) => typeof value === 'string' && value !== '';
 const newDraftId = () => randomUUID().replaceAll('-', '').slice(0, 16);
 
-// What every reply needs to know about the customer's language.
-const languageContext = (language) => ({ language, t: textsFor(language), q: quickRepliesFor(language) });
-
-// For a request that cannot be read at all: nobody to look a language up for.
-const DEFAULT_FALLBACK = (() => {
-  const ctx = languageContext(DEFAULT_LANGUAGE);
-  return () => [menuReply(ctx, 'fallback', ctx.t.FALLBACK)];
-})();
 
 const phoneQuestion = (ctx, rule, previousPhone) =>
   textReply(rule, ctx.t.askPhone(previousPhone), { quickReplies: ctx.q.phone(previousPhone) });
 const addressQuestion = (ctx, rule, previousAddress) =>
   textReply(rule, ctx.t.askAddress(previousAddress), { quickReplies: ctx.q.address(previousAddress) });
 
-export function createConversationService({
-  sessions = sessionStore,
-  orders = orderStore,
-  preferences = preferenceStore,
-  catalog = productService,
-} = {}) {
-  const availableProduct = (id) => {
-    const product = isId(id) ? catalog.getProductById(id) : null;
-    return product?.available === true ? product : null;
+// `shopName` (a string, or a function read on every message) goes into the welcome text.
+export function createConversationService({ sessions, orders, preferences, catalog = createCatalog([]), shopName = '' }) {
+  const nameOfShop = typeof shopName === 'function' ? shopName : () => shopName;
+
+  // What every reply needs to know about the customer's language.
+  const languageContext = (language) => ({
+    language,
+    t: textsFor(language, nameOfShop()),
+    q: quickRepliesFor(language),
+  });
+
+  // For a request that cannot be read at all: nobody to look a language up for.
+  const defaultFallback = () => {
+    const ctx = languageContext(DEFAULT_LANGUAGE);
+    return [menuReply(ctx, 'fallback', ctx.t.FALLBACK)];
+  };
+
+  const availableProduct = async (id) => {
+    const product = isId(id) ? await catalog.getProductById(id) : null;
+    return product !== null && isAvailable(product) ? product : null;
   };
 
   // --- commands that work in every step ---
@@ -146,7 +150,7 @@ export function createConversationService({
   // --- catalog ---
 
   async function showCatalog(ctx, page, rule) {
-    const view = catalog.getCatalogPage(page);
+    const view = await catalog.getCatalogPage(page);
     if (view.items.length === 0) return [menuReply(ctx, rule, ctx.t.CATALOG_EMPTY)];
 
     await sessions.update(ctx.key, { ...NO_DRAFT, step: STEPS.BROWSING_PRODUCTS, page: view.page });
@@ -164,8 +168,8 @@ export function createConversationService({
     ];
   }
 
-  function turnPage(ctx, direction) {
-    const current = catalog.getCatalogPage(ctx.session.page);
+  async function turnPage(ctx, direction) {
+    const current = await catalog.getCatalogPage(ctx.session.page);
     if (direction > 0 && !current.hasNext) return [menuReply(ctx, 'catalog_edge', ctx.t.CATALOG_EDGE_LAST)];
     if (direction < 0 && !current.hasPrev) return [menuReply(ctx, 'catalog_edge', ctx.t.CATALOG_EDGE_FIRST)];
     return showCatalog(ctx, current.page + direction, 'catalog_page');
@@ -180,7 +184,7 @@ export function createConversationService({
   // A customer who came through a product link has not seen the product's card, so the question
   // comes with its photo.
   async function startOrder(ctx, productId, { withPhoto = false } = {}) {
-    const product = availableProduct(productId);
+    const product = await availableProduct(productId);
     if (!product) return [menuReply(ctx, 'product_not_found', ctx.t.PRODUCT_NOT_FOUND)];
 
     await sessions.update(ctx.key, { ...NO_DRAFT, step: STEPS.WAITING_FOR_QUANTITY, page: 1, productId: product.id });
@@ -282,7 +286,7 @@ export function createConversationService({
 
   async function showSummary(ctx, { phone, address }) {
     const { key, session } = ctx;
-    const product = availableProduct(session.productId);
+    const product = await availableProduct(session.productId);
     if (!product) return unavailableProduct(ctx);
 
     const draftId = newDraftId();
@@ -299,7 +303,7 @@ export function createConversationService({
   // tap, a retried webhook or "text then button" can never produce a second order.
   async function confirmOrder(ctx) {
     const { key, psid, session } = ctx;
-    const product = availableProduct(session.productId);
+    const product = await availableProduct(session.productId);
     if (!product) return unavailableProduct(ctx);
 
     const { order, created } = await orders.create(
@@ -350,7 +354,7 @@ export function createConversationService({
   // Only Cancel, or choosing another product, ends the draft.
   async function resume(ctx, note = ctx.t.ORDER_IN_PROGRESS) {
     const { psid, session } = ctx;
-    const product = availableProduct(session.productId);
+    const product = await availableProduct(session.productId);
     if (!product) return unavailableProduct(ctx);
 
     const again = (question, quickReplies) => textReply('order_resumed', resumed(note, question), { quickReplies });
@@ -383,7 +387,7 @@ export function createConversationService({
     return infoReply(ctx, 'order_info', ctx.t.orderInfo(recent));
   }
 
-  function menuChoice(ctx, raw, t) {
+  async function menuChoice(ctx, raw, t) {
     if (CATALOG_WORDS.has(t)) return showCatalog(ctx, 1, 'catalog');
     if (ORDER_INFO_WORDS.has(t)) return showOrders(ctx);
     if (SUPPORT_WORDS.has(t)) return support(ctx);
@@ -395,6 +399,8 @@ export function createConversationService({
 
     const code = PRODUCT_CODE.exec(t);
     if (code) return startOrder(ctx, code[1]);
+    const typed = TYPED_ID.exec(t);
+    if (typed && (await catalog.getProductById(typed[1]))) return startOrder(ctx, typed[1]);
     return [menuReply(ctx, 'fallback', ctx.t.FALLBACK)];
   }
 
@@ -468,7 +474,7 @@ export function createConversationService({
   async function handle(request) {
     try {
       const { pageId, psid, input } = request ?? {};
-      if (!isId(pageId) || !isId(psid)) return DEFAULT_FALLBACK();
+      if (!isId(pageId) || !isId(psid)) return defaultFallback();
 
       const key = conversationKey(pageId, psid);
       const [session, stored] = await Promise.all([sessions.get(key), preferences.getLanguage(key)]);
@@ -481,11 +487,9 @@ export function createConversationService({
       if (input?.type === 'attachment') return await handleAttachment(ctx);
       return [menuReply(ctx, 'fallback', ctx.t.FALLBACK)];
     } catch {
-      return DEFAULT_FALLBACK();
+      return defaultFallback();
     }
   }
 
   return { handle };
 }
-
-export const conversationService = createConversationService();

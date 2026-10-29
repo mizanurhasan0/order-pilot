@@ -15,7 +15,7 @@ if (invalid.length > 0) {
 
 // Imported only after the check, so bad configuration stops here with the message above.
 const { default: app } = await import('./app.js');
-const { storageMode } = await import('./store/index.js');
+const { storageMode } = await import('./bot.js');
 
 const server = app.listen(port);
 

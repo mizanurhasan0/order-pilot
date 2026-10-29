@@ -2,7 +2,7 @@
   "name": "orderpilot-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "OrderPilot Messenger backend: Meta webhook verification and event receiver",
+  "description": "OrderPilot backend: products and admin orders API, plus the Messenger order bot (the orderpilot package)",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
   "engines": {
@@ -18,7 +18,8 @@
     "@upstash/redis": "^1.39.0",
     "@vercel/functions": "^3.9.11",
     "dotenv": "^18.0.8",
-    "express": "^5.3.0"
+    "express": "^5.3.0",
+    "orderpilot": "link:../packages/orderpilot"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

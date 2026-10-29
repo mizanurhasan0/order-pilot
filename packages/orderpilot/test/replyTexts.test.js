@@ -14,12 +14,31 @@ test('WELCOME is the approved menu text', () => {
     texts.WELCOME,
     `স্বাগতম! 🛍️
 
+আমাদের পেজে আপনাকে স্বাগতম।
+
+আমাদের পণ্য দেখতে অথবা অর্ডার করতে নিচের অপশন নির্বাচন করুন।
+
+${MENU_OPTIONS}`,
+  );
+});
+
+test('the welcome names the shop when it has a name', () => {
+  assert.equal(
+    texts.textsFor('bn', 'Tangail Botiques').WELCOME,
+    `স্বাগতম! 🛍️
+
 Tangail Botiques-এ আপনাকে স্বাগতম।
 
 আমাদের পণ্য দেখতে অথবা অর্ডার করতে নিচের অপশন নির্বাচন করুন।
 
 ${MENU_OPTIONS}`,
   );
+  assert.match(texts.textsFor('en', '  My Shop ').WELCOME, /\nWelcome to My Shop\.\n/);
+  // Every text that ends with the menu carries the same welcome.
+  assert.ok(texts.textsFor('bn', 'Tangail Botiques').ORDER_CANCELLED.endsWith(texts.textsFor('bn', 'Tangail Botiques').WELCOME));
+  // Built once per language and name.
+  assert.equal(texts.textsFor('bn', 'Tangail Botiques'), texts.textsFor('bn', 'Tangail Botiques'));
+  assert.equal(texts.textsFor('bn'), texts.textsFor('bn', ''));
 });
 
 test('SUPPORT, FALLBACK and ATTACHMENT are the approved texts', () => {
@@ -295,7 +314,7 @@ test('the English welcome, summary and confirmation are the approved texts', () 
     en.WELCOME,
     `Welcome! 🛍️
 
-Welcome to Tangail Botiques.
+Welcome to our shop.
 
 Choose an option below to see our products or place an order.
 
