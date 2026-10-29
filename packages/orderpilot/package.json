@@ -1,6 +1,7 @@
 {
   "name": "orderpilot-messenger-bot",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "A Facebook Messenger order bot for Node.js shops. Automate product browsing and order taking in Bangla or English with Express or Next.js.",
   "type": "module",
   "repository": {
@@ -26,7 +27,8 @@
     "src",
     "index.d.ts",
     "README.md",
-    "bin"
+    "bin",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20"
