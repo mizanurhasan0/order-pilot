@@ -21,11 +21,11 @@ const redis = useRedis
   : null;
 
 export const bot = createOrderPilot({
-  shopName: SHOP_NAME,
-  products,
-  redis,
+  shopName: SHOP_NAME, //facebook page name
+  products, // function returning the products, read on every delivery
+  redis, // null means in-memory storage, else Upstash Redis
   // Replies only with ENABLE_AUTO_REPLY=true, read on every delivery; otherwise receive and log.
   autoReply: () => isAutoReplyEnabled(),
   // On Vercel this keeps the function alive until the replies are sent; elsewhere it does nothing.
-  waitUntil,
+  waitUntil, 
 });

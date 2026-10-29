@@ -14,7 +14,7 @@
     "url": "https://github.com/mizanurhasan0/order-pilot/issues"
   },
   "bin": {
-    "orderpilot-messenger-bot": "./bin/orderpilot.js"
+    "orderpilot-messenger-bot": "bin/orderpilot.js"
   },
   "exports": {
     ".": {
