@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CATALOG_PAGE_SIZE, createCatalog, isAvailable } from '../src/catalog.js';
+import { CATALOG_PAGE_SIZE, createCatalog, createPagedCatalog, isAvailable } from '../src/catalog.js';
 import { products } from './fixtures/products.js';
 
 const available = products.filter((product) => product.available);
@@ -146,3 +146,124 @@ test('getCatalogPage: changing the returned items does not affect the catalog', 
   result.items.length = 0;
   assert.deepEqual((await getCatalogPage(1)).items, expected);
 });
+
+// ---------------------------------------------------------------- createPagedCatalog (a shop's own queries)
+
+// A fake database: the available fixture products, paged like LIMIT/OFFSET, recording every call.
+function fakeDb(rows = available) {
+  const calls = [];
+  return {
+    calls,
+    getProduct: async (id) => {
+      calls.push(['getProduct', id]);
+      return rows.find((row) => row.id === id) ?? null;
+    },
+    listProducts: async (query) => {
+      calls.push(['listProducts', query]);
+      return { items: rows.slice(query.offset, query.offset + query.limit), total: rows.length };
+    },
+  };
+}
+
+test('paged: asks for one page only, with page, limit and offset', async () => {
+  const db = fakeDb();
+  const paged = createPagedCatalog(db);
+  const page2 = await paged.getCatalogPage(2);
+
+  assert.deepEqual(db.calls, [['listProducts', { page: 2, limit: 5, offset: 5 }]]);
+  assert.deepEqual(page2, await getCatalogPage(2), 'the same page the array catalog gives');
+  assert.equal(page2.hasPrev, true);
+  assert.equal(page2.totalPages, expectedPages(available.length, CATALOG_PAGE_SIZE));
+});
+
+test('paged: a page past the end is asked again as the last page; a bad page is page 1', async () => {
+  const db = fakeDb();
+  const paged = createPagedCatalog(db);
+  const last = expectedPages(available.length, CATALOG_PAGE_SIZE);
+
+  const view = await paged.getCatalogPage(999);
+  assert.equal(view.page, last);
+  assert.equal(view.hasNext, false);
+  assert.ok(view.items.length >= 1);
+  assert.deepEqual(db.calls.map(([, query]) => query.page), [999, last]);
+
+  for (const page of [0, -1, 1.5, '2', null]) assert.equal((await paged.getCatalogPage(page)).page, 1, String(page));
+});
+
+test('paged: skips unusable and unavailable rows, fills in defaults, never shows more than a page', async () => {
+  const rows = [
+    { id: 'A1', name: 'One', price: 100 },
+    { id: 'A2', name: 'Hidden', price: 100, available: false },
+    { id: 'A3', name: 'No price' },
+    { id: 'A4', name: 'Four', price: 400 },
+    { id: 'A5', name: 'Five', price: 500 },
+    { id: 'A6', name: 'Six', price: 600 },
+    { id: 'A7', name: 'Seven', price: 700 },
+    { id: 'A8', name: 'Eight', price: 800 },
+  ];
+  // A query that ignores the limit: the bot still shows at most one page.
+  const paged = createPagedCatalog({ getProduct: async () => null, listProducts: async () => ({ items: rows, total: 6 }) });
+  const view = await paged.getCatalogPage(1);
+  assert.deepEqual(view.items.map((product) => [product.id, product.currency]), [
+    ['A1', 'BDT'],
+    ['A4', 'BDT'],
+    ['A5', 'BDT'],
+    ['A6', 'BDT'],
+    ['A7', 'BDT'],
+  ]);
+  assert.equal(view.totalPages, 2);
+});
+
+test('paged: without a usable total, nothing past the current page is offered', async () => {
+  const paged = createPagedCatalog({
+    getProduct: async () => null,
+    listProducts: async ({ offset, limit }) => ({ items: available.slice(offset, offset + limit) }),
+  });
+  const view = await paged.getCatalogPage(2);
+  assert.equal(view.page, 2);
+  assert.equal(view.totalPages, 2);
+  assert.equal(view.hasNext, false);
+});
+
+test('paged: getProduct gets the id as given, then in upper case', async () => {
+  const db = fakeDb();
+  const paged = createPagedCatalog(db);
+  const first = available[0];
+
+  assert.equal((await paged.getProductById(first.id)).id, first.id);
+  assert.equal((await paged.getProductById(`  ${first.id.toLowerCase()}  `)).id, first.id);
+  assert.deepEqual(db.calls, [
+    ['getProduct', first.id],
+    ['getProduct', first.id.toLowerCase()],
+    ['getProduct', first.id],
+  ]);
+
+  db.calls.length = 0;
+  assert.equal(await paged.getProductById('NOPE'), null);
+  assert.deepEqual(db.calls, [['getProduct', 'NOPE']], 'an upper-case id is asked once');
+  for (const id of [null, undefined, '', '  ', 7]) assert.equal(await paged.getProductById(id), null);
+  assert.equal(db.calls.length, 1, 'no query for an empty id');
+});
+
+test('paged: a row that is not a usable product is not found; an unavailable one is', async () => {
+  const paged = createPagedCatalog({
+    getProduct: async (id) => ({ X: { id: 'X', name: 'No price' }, Y: { id: 'Y', name: 'Off', price: 10, available: false } })[id] ?? null,
+    listProducts: async () => ({ items: [], total: 0 }),
+  });
+  assert.equal(await paged.getProductById('X'), null);
+  assert.deepEqual(await paged.getProductById('Y'), { id: 'Y', name: 'Off', price: 10, available: false, currency: 'BDT' });
+});
+
+test('paged: a failing query rejects, so the conversation can answer with its fallback', async () => {
+  const paged = createPagedCatalog({
+    getProduct: async () => {
+      throw new Error('db down');
+    },
+    listProducts: async () => {
+      throw new Error('db down');
+    },
+  });
+  await assert.rejects(paged.getProductById('P001'), /db down/);
+  await assert.rejects(paged.getCatalogPage(1), /db down/);
+});
+

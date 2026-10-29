@@ -90,6 +90,7 @@ Every Page setting can come from an option or, when the option is left out, from
 | `shopName` | `SHOP_NAME` | Shown in the welcome message. |
 | `detectLanguage` | `DETECT_LANGUAGE` | Pick Bangla or English from the customer's Facebook language. On unless `false`. |
 | `products` | | An array, or a function (may be async) that returns one. See below. |
+| `catalog` | | For a large catalog: `getProduct(id)` and `listProducts({ page, limit, offset })` over your database, instead of `products`. See below. |
 | `onOrder(order)` | | Runs once for every new order, before the customer's confirmation is sent. A failure is logged and never stops the reply. |
 | `redis` | | A Redis client (`@upstash/redis`) to keep orders, conversations, languages and the duplicate filter in. |
 | `redisPrefix` | | Key prefix in Redis, default `orderpilot:`. |
@@ -116,6 +117,34 @@ createOrderPilot({ products: async () => db.product.findMany({ where: { publishe
 | `available` | Optional, `false` hides the product. |
 
 A function is called on every lookup, so changes show up at once; cache inside it if the query is slow. Products without a usable `id`, `name` or `price` are skipped. If a card cannot be built (an `http://` image, say) the page is sent as a text list instead.
+
+### Large catalogs
+
+`products` hands the bot the whole list on every lookup, which is fine for a few hundred products. With thousands, pass `catalog` instead: the bot then only ever asks your database for one page of 5 products, or for one product.
+
+```js
+createOrderPilot({
+  catalog: {
+    // One product by id, available or not, or null
+    getProduct: (id) => db.product.findUnique({ where: { id } }),
+
+    // One page of the products customers may order, and how many there are in all
+    listProducts: async ({ limit, offset }) => {
+      const where = { published: true };
+      const [items, total] = await Promise.all([
+        db.product.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }),
+        db.product.count({ where }),
+      ]);
+      return { items, total };
+    },
+  },
+});
+```
+
+- `getProduct(id)` gets the id as written on a button, or as the customer typed it in lower case. If that finds nothing, the bot asks again in upper case, so `p001` finds `P001`.
+- `listProducts({ page, limit, offset })` returns one page, already filtered to what customers may order, in a stable order. `total` counts those products; the bot works out the pages, the Next and Previous buttons, and a page number past the end.
+- Rows go through the same checks as `products`: unusable rows are skipped and defaults filled in. A failing query is answered with the bot's fallback message.
+- Pass `products` or `catalog`, not both.
 
 ## Storage
 

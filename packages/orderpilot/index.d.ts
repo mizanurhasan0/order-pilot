@@ -116,7 +116,10 @@ export interface OrderPilotOptions {
   detectLanguage?: boolean | (() => boolean);
   /** Default true. */
   autoReply?: boolean | (() => boolean);
+  /** The whole product list, or a function returning it. For a large catalog use `catalog` instead. */
   products?: Product[] | (() => MaybePromise<Product[]>);
+  /** Paged queries over your own database: the bot asks for one page or one product at a time. */
+  catalog?: CatalogAdapter;
   onOrder?: (order: Order) => unknown;
   redis?: RedisClient | null;
   /** Default "orderpilot:". */
@@ -136,6 +139,14 @@ export interface ConnectStep {
   reason?: string;
   hint?: string | null;
   code?: number | null;
+}
+
+/** A large catalog in your own database. Both methods may be async. */
+export interface CatalogAdapter {
+  /** One product, available or not, or null. Gets the id as given, then in upper case. */
+  getProduct(id: string): MaybePromise<Product | null>;
+  /** One page of the products customers may order, and how many there are in all. */
+  listProducts(query: { page: number; limit: number; offset: number }): MaybePromise<{ items: Product[]; total: number }>;
 }
 
 export interface Catalog {
@@ -173,6 +184,7 @@ export interface OrderPilot {
 
 export function createOrderPilot(options?: OrderPilotOptions): OrderPilot;
 export function createCatalog(products?: OrderPilotOptions['products']): Catalog;
+export function createPagedCatalog(adapter: CatalogAdapter): Catalog;
 export function createOrderStore(): OrderStore;
 export function createRedisOrderStore(options: { redis: RedisClient; prefix?: string }): OrderStore;
 export function productLink(pageUsername: string, productId: string): string;

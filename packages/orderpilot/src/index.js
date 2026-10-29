@@ -9,7 +9,7 @@
 // See README.md for every option.
 
 export { createOrderPilot } from './orderPilot.js';
-export { createCatalog, CATALOG_PAGE_SIZE } from './catalog.js';
+export { createCatalog, createPagedCatalog, CATALOG_PAGE_SIZE } from './catalog.js';
 export { DEFAULT_GRAPH_API_VERSION, ENV_NAMES } from './config.js';
 export { WEBHOOK_FIELDS } from './connect.js';
 export { DEFAULT_LANGUAGE, LANGUAGES } from './services/language.js';

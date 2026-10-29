@@ -1,4 +1,4 @@
-import { createCatalog } from './catalog.js';
+import { createCatalog, createPagedCatalog } from './catalog.js';
 import { createSettings, describeSetting } from './config.js';
 import { connectPage } from './connect.js';
 import { createAutoReplyService } from './services/autoReplyService.js';
@@ -20,6 +20,9 @@ import { createWebhook } from './webhook.js';
 // filter in Redis, which serverless hosting needs. Without one they live in this process's
 // memory and are lost on restart. A shop can also pass its own `orders`, `sessions`,
 // `preferences` or `dedupe` store; the methods each needs are checked here.
+//
+// Products: `products` (an array, or a function returning the whole list) or, for a large
+// catalog, `catalog` (paged queries over the shop's database; see catalog.js).
 
 const STORE_METHODS = {
   orders: ['create', 'get', 'listByCustomer', 'findByIdempotencyKey'],
@@ -27,6 +30,7 @@ const STORE_METHODS = {
   preferences: ['getLanguage', 'setLanguage'],
   dedupe: ['markIfNew'],
   redis: ['get', 'set', 'del', 'incr', 'mget', 'zadd', 'zrange', 'zcard'],
+  catalog: ['getProduct', 'listProducts'],
 };
 
 function checkStore(name, store) {
@@ -38,6 +42,9 @@ function checkStore(name, store) {
 export function createOrderPilot(options = {}) {
   if (options === null || typeof options !== 'object') throw new TypeError('createOrderPilot() takes an options object');
   for (const name of Object.keys(STORE_METHODS)) checkStore(name, options[name]);
+  if (options.products !== undefined && options.catalog !== undefined && options.catalog !== null) {
+    throw new TypeError('pass products or catalog, not both');
+  }
   for (const name of ['onOrder', 'waitUntil']) {
     if (options[name] !== undefined && typeof options[name] !== 'function') throw new TypeError(`${name} must be a function`);
   }
@@ -50,7 +57,7 @@ export function createOrderPilot(options = {}) {
   const sessions = options.sessions ?? (redis ? createRedisSessionStore({ redis, prefix }) : createSessionStore({ autoPurge: true }));
   const preferences = options.preferences ?? (redis ? createRedisPreferenceStore({ redis, prefix }) : createPreferenceStore());
   const dedupe = options.dedupe ?? (redis ? createRedisDedupeCache({ redis, prefix }) : createDedupeCache());
-  const catalog = createCatalog(options.products ?? []);
+  const catalog = options.catalog ? createPagedCatalog(options.catalog) : createCatalog(options.products ?? []);
 
   const messenger = createMessengerClient({ getConfig: settings.sendApi });
   const conversation = createConversationService({ sessions, orders, preferences, catalog, shopName: settings.shopName });

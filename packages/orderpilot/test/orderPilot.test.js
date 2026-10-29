@@ -166,6 +166,75 @@ describe('createOrderPilot', () => {
   });
 });
 
+describe('catalog option (a large catalog in the shop\'s database)', () => {
+  // A fake database over the fixture products that records every query and hands out one page at most.
+  function fakeDb() {
+    const rows = products.filter((product) => product.available);
+    const calls = [];
+    return {
+      calls,
+      getProduct: async (id) => {
+        calls.push(['getProduct', id]);
+        return rows.find((row) => row.id === id) ?? null;
+      },
+      listProducts: async ({ page, limit, offset }) => {
+        calls.push(['listProducts', { page, limit, offset }]);
+        return { items: rows.slice(offset, offset + limit), total: rows.length };
+      },
+    };
+  }
+
+  it('takes a whole order while asking the database for one page or one product at a time', async () => {
+    const db = fakeDb();
+    const received = [];
+    const bot = makeBot({ products: undefined, catalog: db, onOrder: (order) => received.push(order) });
+
+    await bot.processEntries(payloadOf(textEvent('1')).entry);
+    const [cards] = sentMessages();
+    assert.equal(cards.attachment.payload.elements.length, 5);
+    assert.deepEqual(db.calls, [['listProducts', { page: 1, limit: 5, offset: 0 }]]);
+
+    await orderP001(bot);
+    assert.equal(received.length, 1);
+    assert.equal(received[0].productId, 'P001');
+    assert.ok(
+      db.calls.every(([kind, arg]) => (kind === 'listProducts' ? arg.limit === 5 : arg === 'P001')),
+      'only page queries of 5 and lookups of P001',
+    );
+  });
+
+  it('finds a typed product code whichever case the database stores it in', async () => {
+    const db = fakeDb();
+    const bot = makeBot({ products: undefined, catalog: db });
+    await bot.processEntries(payloadOf(textEvent('p002')).entry);
+
+    assert.deepEqual(db.calls, [
+      ['getProduct', 'p002'],
+      ['getProduct', 'P002'],
+    ]);
+    assert.equal((await bot.sessions.get(`${PAGE_ID}:${PSID}`)).productId, 'P002');
+  });
+
+  it('a failing database query gets the fallback message, not silence', async () => {
+    const bot = makeBot({
+      products: undefined,
+      catalog: {
+        getProduct: async () => null,
+        listProducts: async () => {
+          throw new Error('db down');
+        },
+      },
+    });
+    await bot.processEntries(payloadOf(textEvent('1')).entry);
+    assert.equal(sentMessages()[0].text, textsFor('bn', SHOP).FALLBACK);
+  });
+
+  it('checks the catalog it is given, and refuses products and catalog together', () => {
+    assert.throws(() => createOrderPilot({ catalog: { getProduct() {} } }), /catalog is missing: listProducts/);
+    assert.throws(() => createOrderPilot({ products, catalog: fakeDb() }), /pass products or catalog, not both/);
+  });
+});
+
 describe('a whole order', () => {
   it('creates the order, runs onOrder once with it, and confirms', async () => {
     const received = [];
