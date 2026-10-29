@@ -1,6 +1,23 @@
-# orderpilot
+# orderpilot-messenger-bot
 
 A Messenger order bot for a Facebook Page. Install it in any Node.js app, give it the Page's details and your products, mount one webhook route, and customers can browse and order in Messenger, in Bangla or English.
+
+## Fastest setup
+
+For a new Express app, scaffold a working starter:
+
+```bash
+npx orderpilot-messenger-bot init my-shop
+cd my-shop
+cp .env.orderpilot.example .env
+# Add your Meta credentials to .env and replace the sample product in products.js.
+npm install
+npm run dev
+```
+
+To add OrderPilot to an existing Express project, run `npx orderpilot-messenger-bot init --framework express` in its folder. For an existing Next.js App Router project, use `npx orderpilot-messenger-bot init --framework next`. The CLI refuses to overwrite files; choose an empty folder or move any conflicting files first.
+
+The generated starter includes the webhook route, an example product list, environment-variable template, and basic server setup. It does not create Meta credentials or publish anything. Node.js 20 or newer is required.
 
 - Product cards in Messenger, 5 per page, with **🛒 Order** buttons.
 - Order steps: quantity → phone number → address → summary → confirm. Returning customers can reuse their last phone number and address.
@@ -14,12 +31,12 @@ No runtime dependencies. Node.js 20 or newer.
 ## Quick start (Express)
 
 ```bash
-npm install orderpilot
+npm install orderpilot-messenger-bot
 ```
 
 ```js
 import express from 'express';
-import { createOrderPilot } from 'orderpilot';
+import { createOrderPilot } from 'orderpilot-messenger-bot';
 
 const bot = createOrderPilot({
   shopName: 'My Shop',
@@ -37,6 +54,8 @@ app.use(express.json());
 app.listen(3000);
 ```
 
+The generated `orderpilot.js` and `server.js` from `npx orderpilot-messenger-bot init` provide the same setup with the webhook mounted in the correct place.
+
 `.env` (or real environment variables):
 
 ```bash
@@ -46,12 +65,26 @@ META_APP_SECRET=...          # App settings > Basic > App secret (checks every d
 META_VERIFY_TOKEN=...        # any secret string; the same value goes into the webhook settings
 ```
 
-Then link the Page once the server is reachable over HTTPS:
+### Set up the Meta webhook
+
+1. Create a Meta app and add the Messenger use case. Connect the Facebook Page and create a Page access token.
+2. Put the Page access token, numeric Page ID, App Secret, and a random Verify Token in `.env` (or your host's environment settings). Keep secrets out of source control.
+3. Deploy the app behind a public HTTPS URL. The webhook path in the Express example is `/webhook/facebook`.
+4. In Meta's webhook settings, use that full URL and the same `META_VERIFY_TOKEN`. Subscribe to `messages`, `messaging_postbacks`, and `messaging_referrals`.
+5. Test with an app role first. Meta limits messages to app admins, developers, and testers until the required permissions receive Advanced Access through App Review.
+
+You can enter the callback URL and verify token in Meta manually, or let `bot.connect()` configure the app webhook, Page subscription, and Get Started button. For `connect()`, also set `FACEBOOK_APP_ID` and `WEBHOOK_URL` in `.env`. Start the server first so Meta can verify the public callback URL, then run this one-off script from your project:
 
 ```js
 const result = await bot.connect();
-console.log(result.steps); // [{ step: 'app_webhook', ... }, { step: 'page_subscription', ok: true }, { step: 'get_started', ok: true }]
+for (const step of result.steps) {
+  console.log(step.step, step.ok ? 'configured' : step.skipped ? `skipped: ${step.missing.join(', ')}` : step.hint ?? step.reason);
+}
 ```
+
+Run this only after checking the settings it will apply. It makes changes to the Meta app and Page through the Graph API; it can be safely rerun.
+
+The generated starter includes `connect-meta.js`; run `npm run connect:meta` (or `node connect-meta.js` in an existing project) after deployment. The result names each configured or skipped step without printing credentials.
 
 ## Other frameworks
 
@@ -178,11 +211,23 @@ The bot answers within Meta's 24-hour window only; it never writes first.
 ## Helpers
 
 ```js
-import { productLink, textsFor, ORDER_STATUSES } from 'orderpilot';
+import { productLink, textsFor, ORDER_STATUSES } from 'orderpilot-messenger-bot';
 
 productLink('myshop', 'P001'); // https://m.me/myshop?ref=ORDER_PRODUCT:P001
 textsFor('en', 'My Shop').WELCOME; // every customer-facing text, per language
 ```
+
+## Publish to npm
+
+This repository contains the package source in `packages/orderpilot`. Before publishing, choose and add a license that matches how you want others to use the code, confirm the npm name `orderpilot-messenger-bot` is available (or choose a scoped name), and update the version in `package.json` for each release. Then, from this directory:
+
+```bash
+npm login
+npm pack --dry-run
+npm publish --access public
+```
+
+The package includes only `src/`, `bin/`, `index.d.ts`, and this README. Publishing makes the package publicly installable; it does not deploy the backend or connect a Facebook Page.
 
 ## Development
 
@@ -191,5 +236,3 @@ npm test
 ```
 
 The tests mock the Graph API, so they make no Meta calls and need no `.env`.
-
-This package is `"private": true` until it is published: remove that line and choose a license first.

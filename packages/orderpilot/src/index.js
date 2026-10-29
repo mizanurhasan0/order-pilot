@@ -1,7 +1,7 @@
 // orderpilot: a Messenger order bot for a Facebook Page. Install it in any Node.js app, give it
 // the Page's details (options or environment variables) and your products, mount the webhook.
 //
-//   import { createOrderPilot } from 'orderpilot';
+//   import { createOrderPilot } from 'orderpilot-messenger-bot';
 //
 //   const bot = createOrderPilot({ shopName: 'My Shop', products });
 //   app.use('/webhook/facebook', bot.webhook);

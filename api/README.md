@@ -6,7 +6,7 @@ A Node.js (Express 5) backend for a Facebook Page shop. It serves three things:
 - **A public product API** over a static catalog of 50 products (`P001` to `P050`, 8 categories).
 - **An admin orders API**, protected by `ADMIN_API_KEY`, which the dashboard in `../web` uses.
 
-The bot itself is the [`orderpilot`](../packages/orderpilot/README.md) package in `../packages/orderpilot`, an npm package any Node.js app can install. This backend links it (`"orderpilot": "link:../packages/orderpilot"`) and sets it up in [`src/bot.js`](src/bot.js) with our products, our shop name and Redis. How the conversation works, every bot option and the bot's own tests are documented there.
+The bot itself is the [`orderpilot-messenger-bot`](../packages/orderpilot/README.md) package in `../packages/orderpilot`, an npm package any Node.js app can install. This backend links it (`"orderpilot-messenger-bot": "link:../packages/orderpilot"`) and sets it up in [`src/bot.js`](src/bot.js) with our products, our shop name and Redis. How the conversation works, every bot option and the bot's own tests are documented there.
 
 **Contents:** [How it fits together](#how-it-fits-together) · [Project structure](#project-structure) · [Quick start](#quick-start) · [Environment variables](#environment-variables) · [REST API](#rest-api) · [Messenger bot](#messenger-bot) · [Tests](#tests) · [Deploying](#deploying) · [Troubleshooting](#troubleshooting) · [Security](#security)
 

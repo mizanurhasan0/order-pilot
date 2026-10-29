@@ -5,7 +5,7 @@
 import './loadEnv.js';
 import { Redis } from '@upstash/redis';
 import { waitUntil } from '@vercel/functions';
-import { createOrderPilot } from 'orderpilot';
+import { createOrderPilot } from 'orderpilot-messenger-bot';
 import { getRedisConfig, invalidStorageVars, isAutoReplyEnabled } from './config.js';
 import { products } from './data/products.js';
 

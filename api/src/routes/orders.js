@@ -1,5 +1,5 @@
 import express from 'express';
-import { ORDER_STATUSES } from 'orderpilot';
+import { ORDER_STATUSES } from 'orderpilot-messenger-bot';
 import { bot } from '../bot.js';
 import { requireAdminKey } from '../middleware/adminAuth.js';
 

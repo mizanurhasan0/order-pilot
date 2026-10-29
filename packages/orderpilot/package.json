@@ -1,9 +1,20 @@
 {
-  "name": "orderpilot",
+  "name": "orderpilot-messenger-bot",
   "version": "0.1.0",
-  "private": true,
-  "description": "A Messenger order bot for Facebook Pages: install it in any Node.js app, give it your Page details and products, and customers order in Messenger (Bangla and English).",
+  "description": "A Facebook Messenger order bot for Node.js shops. Automate product browsing and order taking in Bangla or English with Express or Next.js.",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mizanurhasan0/order-pilot.git",
+    "directory": "packages/orderpilot"
+  },
+  "homepage": "https://github.com/mizanurhasan0/order-pilot/tree/main/packages/orderpilot#readme",
+  "bugs": {
+    "url": "https://github.com/mizanurhasan0/order-pilot/issues"
+  },
+  "bin": {
+    "orderpilot-messenger-bot": "./bin/orderpilot.js"
+  },
   "exports": {
     ".": {
       "types": "./index.d.ts",
@@ -14,7 +25,8 @@
   "files": [
     "src",
     "index.d.ts",
-    "README.md"
+    "README.md",
+    "bin"
   ],
   "engines": {
     "node": ">=20"
@@ -23,11 +35,20 @@
     "test": "node --test"
   },
   "keywords": [
+    "facebook-messenger",
     "facebook",
     "messenger",
+    "messenger-bot",
     "chatbot",
+    "order-bot",
+    "order-taking",
     "ecommerce",
+    "conversational-commerce",
     "orders",
+    "shop",
+    "nodejs",
+    "express",
+    "nextjs",
     "bangla"
   ]
 }

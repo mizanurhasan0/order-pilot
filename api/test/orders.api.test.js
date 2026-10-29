@@ -3,7 +3,7 @@ import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import express from 'express';
 import { errorHandler, notFound } from '../src/middleware/errors.js';
 import { createOrdersRouter } from '../src/routes/orders.js';
-import { createOrderStore } from 'orderpilot';
+import { createOrderStore } from 'orderpilot-messenger-bot';
 
 // Integration test: the REAL orders router on a tiny Express app on a random port,
 // with its own isolated store, and the app's own 404 and error handlers.

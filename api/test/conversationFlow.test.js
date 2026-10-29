@@ -14,7 +14,7 @@ import {
   quantityPayload,
   quickRepliesFor,
   textsFor,
-} from 'orderpilot';
+} from 'orderpilot-messenger-bot';
 import { SHOP_NAME, bot } from '../src/bot.js';
 import { errorHandler, notFound } from '../src/middleware/errors.js';
 import ordersRouter from '../src/routes/orders.js';

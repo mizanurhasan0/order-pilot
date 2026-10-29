@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:test';
 import { inspect } from 'node:util';
 import express from 'express';
-import { orderProductPayload, quickRepliesFor, textsFor } from 'orderpilot';
+import { orderProductPayload, quickRepliesFor, textsFor } from 'orderpilot-messenger-bot';
 import { SHOP_NAME, bot } from '../src/bot.js';
 import { errorHandler } from '../src/middleware/errors.js';
 
